@@ -1,0 +1,22 @@
+[Unit]
+Description=Hermes Job Hunter 2.0 - Frontend Next.js (porta 3000)
+After=network-online.target hermes-jobhunter-backend.service
+Wants=network-online.target
+BindsTo=hermes-jobhunter-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/TOOLS_/hermes/frontend
+Environment=PATH=/home/user/.nvm/versions/node/v24.20.0/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=NEXT_PUBLIC_API_URL=http://localhost:8000
+ExecStart=/home/user/.nvm/versions/node/v24.20.0/bin/npm run start -- --port 3000 --hostname 0.0.0.0
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hermes-jobhunter-frontend
+
+[Install]
+WantedBy=default.target

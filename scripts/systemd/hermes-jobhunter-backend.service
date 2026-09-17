@@ -1,0 +1,21 @@
+[Unit]
+Description=Hermes Job Hunter 2.0 - Backend FastAPI (porta 8000)
+Documentation=https://github.com/anomalyco/opencode
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/TOOLS_/hermes/backend
+EnvironmentFile=-/home/user/TOOLS_/hermes/.env
+Environment=DATABASE_URL=sqlite:////home/user/TOOLS_/hermes/backend/hermes.db
+Environment=ENABLE_BUILTIN_SCHEDULER=true
+ExecStart=/home/user/TOOLS_/hermes/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hermes-jobhunter-backend
+
+[Install]
+WantedBy=default.target
