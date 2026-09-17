@@ -18,3 +18,14 @@ celery_app.conf.update(
 
 # Registra as tasks do worker (app.workers.tasks)
 celery_app.autodiscover_tasks(["app.workers"])
+
+from celery.signals import worker_ready
+
+
+@worker_ready.connect
+def on_worker_ready(**kwargs):
+    try:
+        from app.core.database import apply_lightweight_migrations
+        apply_lightweight_migrations()
+    except Exception as e:
+        print(f"[Celery Worker DB Init Warning] {e}")

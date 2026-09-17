@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from app.core.database import SessionLocal
 from app.core.logging import log_event
 from app.models.entities import (
@@ -227,6 +228,14 @@ def run_search_sync() -> dict:
         "source_stats": {}
     }
 
+    r_client = None
+    try:
+        from app.core.database import get_redis_client
+        r_client = get_redis_client()
+        r_client.set("hermes:agent:is_running", "1", ex=600)
+    except Exception:
+        r_client = None
+
     try:
         log_event("SEARCH_STARTED", run_id=run_uuid)
         user = _get_or_create_user(db)
@@ -387,25 +396,30 @@ def run_search_sync() -> dict:
                 alternative_sources=[],
                 raw_data=jd.get("raw_data", {})
             )
-            db.add(new_job)
-            db.commit()
-            db.refresh(new_job)
+            try:
+                db.add(new_job)
+                db.commit()
+                db.refresh(new_job)
 
-            # Salva correspondência e pontuação
-            db.add(JobMatch(
-                job_id=new_job.id,
-                profile_id=profile.id,
-                score=score,
-                skills_score=ranking_result.get("skills_score", 0),
-                seniority_score=ranking_result.get("seniority_score", 0),
-                location_score=ranking_result.get("location_score", 0),
-                role_score=ranking_result.get("role_score", 0),
-                salary_score=ranking_result.get("salary_score", ranking_result.get("recency_score", 0)),
-                reasoning=reasoning[:8]
-            ))
-            db.commit()
-            stats["new"] += 1
-            recent_db_jobs.append(new_job)
+                # Salva correspondência e pontuação
+                db.add(JobMatch(
+                    job_id=new_job.id,
+                    profile_id=profile.id,
+                    score=score,
+                    skills_score=ranking_result.get("skills_score", 0),
+                    seniority_score=ranking_result.get("seniority_score", 0),
+                    location_score=ranking_result.get("location_score", 0),
+                    role_score=ranking_result.get("role_score", 0),
+                    salary_score=ranking_result.get("salary_score", ranking_result.get("recency_score", 0)),
+                    reasoning=reasoning[:8]
+                ))
+                db.commit()
+                stats["new"] += 1
+                recent_db_jobs.append(new_job)
+            except IntegrityError:
+                db.rollback()
+                stats["deduplicated"] += 1
+                continue
 
             # 9. Notificação Multi-canal se ultrapassar score mínimo
             min_score = prefs.minimum_match_score or 70
@@ -466,4 +480,9 @@ def run_search_sync() -> dict:
         }
 
     finally:
+        if r_client:
+            try:
+                r_client.delete("hermes:agent:is_running")
+            except Exception:
+                pass
         db.close()

@@ -63,10 +63,18 @@ def agent_status(db: Session = Depends(get_db)):
     total_jobs = db.scalar(select(func.count(Job.id))) or 0
     active_jobs = db.scalar(select(func.count(Job.id)).where(Job.status == "active")) or 0
 
+    is_executing = sched_status["is_executing_cycle"]
+    try:
+        r = get_redis_client()
+        if r.get("hermes:agent:is_running") == "1":
+            is_executing = True
+    except Exception:
+        pass
+
     return {
         "running": sched_status["running"],
         "is_paused": sched_status["is_paused"],
-        "is_executing_cycle": sched_status["is_executing_cycle"],
+        "is_executing_cycle": is_executing,
         "last_search": sched_status["last_search"],
         "next_search": sched_status["next_search"],
         "frequency_minutes": freq,

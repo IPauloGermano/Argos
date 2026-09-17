@@ -3,26 +3,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import engine, Base, apply_lightweight_migrations
 from app.models.entities import *  # noqa: F401,F403 — registra modelos
 from app.api.routes import profile, preferences, jobs, agent, notifications, users, telegram, favorites, reports, feedback
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicialização do Banco de Dados
-    try:
-        Base.metadata.create_all(bind=engine)
-        # Migrações leves automáticas para SQLite
-        if engine.dialect.name == "sqlite":
-            with engine.connect() as conn:
-                res = conn.exec_driver_sql("PRAGMA table_info(search_preferences)").fetchall()
-                cols = [r[1] for r in res]
-                if cols and "excluded_jobs" not in cols:
-                    conn.exec_driver_sql("ALTER TABLE search_preferences ADD COLUMN excluded_jobs JSON DEFAULT '[]'")
-                    conn.commit()
-    except Exception as e:
-        print(f"[Hermes DB Warning] {e}")
+    # Inicialização do Banco de Dados e Migrações leves
+    apply_lightweight_migrations(engine)
 
     # Inicialização do Scheduler 24/7 (se habilitado)
     if settings.ENABLE_BUILTIN_SCHEDULER:
