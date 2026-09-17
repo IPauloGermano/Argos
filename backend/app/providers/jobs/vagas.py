@@ -38,6 +38,8 @@ class VagasComJobSource(JobSource):
                 urls_to_crawl.append(f"{self.base_url}/vagas-em-{city_slug}/ti")
 
         jobs: list[NormalizedJob] = []
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
         seen_urls: set[str] = set()
         self.pages_crawled = 0
 
@@ -71,6 +73,19 @@ class VagasComJobSource(JobSource):
 
                         rel_url = link_tag["href"]
                         full_url = f"{self.base_url}{rel_url}" if rel_url.startswith("/") else rel_url
+
+                        # Extrai código da vaga da URL (ex: /vagas/v12345/...)
+                        ext_id = ""
+                        match = re.search(r"/v(\d+)/", full_url)
+                        if match:
+                            ext_id = match.group(1)
+                        else:
+                            ext_id = full_url
+
+                        if full_url in seen_urls or full_url in known_urls or ext_id in known_ids:
+                            continue
+                        seen_urls.add(full_url)
+
                         title = link_tag.get_text(strip=True)
 
                         company_tag = card.find("span", class_=lambda c: c and ("empr" in c or "cargo" in c))
@@ -83,14 +98,6 @@ class VagasComJobSource(JobSource):
                         desc = desc_tag.get_text(strip=True) if desc_tag else title
 
                         work_mode = "remote" if "remoto" in location.lower() or "100% remoto" in desc.lower() else "onsite"
-
-                        # Extrai código da vaga da URL (ex: /vagas/v12345/...)
-                        ext_id = ""
-                        match = re.search(r"/v(\d+)/", full_url)
-                        if match:
-                            ext_id = match.group(1)
-                        else:
-                            ext_id = full_url
 
                         nj = NormalizedJob(
                             external_id=ext_id,

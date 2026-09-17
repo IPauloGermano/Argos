@@ -271,12 +271,18 @@ def run_search_sync() -> dict:
 
         p_dict = _profile_dict(profile)
         prefs_dict = _prefs_dict(prefs)
+        existing_urls = set(db.scalars(select(Job.url)).all())
+        existing_external_ids = set(db.scalars(select(Job.external_id).where(Job.external_id != "")).all())
+
         query = {
             "desired_roles": prefs.desired_roles or profile.roles or ["Backend Developer"],
             "preferred_companies": prefs.preferred_companies or [],
             "locations": prefs.locations or ["Brasil"],
             "work_modes": prefs.work_modes or [],
             "seniority_levels": prefs.seniority_levels or [],
+            "max_job_age_days": prefs.max_job_age_days or 60,
+            "known_urls": existing_urls,
+            "known_ids": existing_external_ids,
         }
 
         # 1. Coleta com Conectores Modulares
@@ -365,6 +371,8 @@ def run_search_sync() -> dict:
 
             if existing_db_job:
                 stats["deduplicated"] += 1
+                if existing_db_job.id in (prefs.excluded_jobs or []):
+                    continue
                 # Detecção de Alterações
                 changes = detect_job_changes(existing_db_job, jd)
                 if changes:

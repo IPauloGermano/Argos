@@ -58,6 +58,8 @@ class GetOnBoardJobSource(JobSource):
             search_terms = ["software"]
 
         jobs: list[NormalizedJob] = []
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
         seen_ids: set[str] = set()
         self.pages_crawled = 0
 
@@ -86,8 +88,10 @@ class GetOnBoardJobSource(JobSource):
                             break
 
                         for it in data:
-                            job_id = it.get("id") or ""
-                            if not job_id or job_id in seen_ids:
+                            job_id = str(it.get("id") or "")
+                            links = it.get("links", {})
+                            url = links.get("public_url") or f"https://www.getonbrd.com/jobs/{job_id}"
+                            if not job_id or job_id in seen_ids or job_id in known_ids or url in known_urls:
                                 continue
                             seen_ids.add(job_id)
 
@@ -136,10 +140,6 @@ class GetOnBoardJobSource(JobSource):
                             # Descrição limpa
                             raw_desc = f"{attr.get('description', '')} {attr.get('functions', '')} {attr.get('benefits', '')}"
                             desc_clean = re.sub(r"<[^>]+>", " ", raw_desc).strip()
-
-                            # URL
-                            links = it.get("links", {})
-                            url = links.get("public_url") or f"https://www.getonbrd.com/jobs/{job_id}"
 
                             # Salário
                             sal_min = attr.get("min_salary")

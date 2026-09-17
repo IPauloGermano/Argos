@@ -41,6 +41,7 @@ class WeWorkRemotelyJobSource(JobSource):
             return []
 
         roles = [r.lower() for r in (query.get("desired_roles") or ["software", "python"])]
+        known_urls = query.get("known_urls") or set()
         jobs: list[NormalizedJob] = []
         seen_urls: set[str] = set()
         self.pages_crawled = 0
@@ -74,7 +75,7 @@ class WeWorkRemotelyJobSource(JobSource):
                         region = (item.findtext("region") or "USA / Worldwide").strip()
                         pub_date_str = item.findtext("pubDate")
 
-                        if not title_raw or not link or link in seen_urls:
+                        if not title_raw or not link or link in seen_urls or link in known_urls:
                             continue
                         seen_urls.add(link)
 

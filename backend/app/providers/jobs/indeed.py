@@ -120,6 +120,8 @@ class IndeedJobSource(JobSource):
 
                             # Extrai ID ou URL limpa
                             clean_url = link.split("&")[0] if "&" in link else link
+                            if clean_url in (query.get("known_urls") or set()):
+                                continue
 
                             nj = NormalizedJob(
                                 external_id=clean_url,

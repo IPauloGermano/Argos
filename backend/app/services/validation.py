@@ -92,6 +92,11 @@ def validate_job(job: dict, prefs: dict) -> tuple[bool, str]:
     url = (job.get("url") or "").strip()
     desc = (job.get("description") or "").strip()
 
+    # 0. Vagas Descartadas/Ignoradas pelo Usuário
+    excluded_jobs = prefs.get("excluded_jobs") or []
+    if job.get("id") and job.get("id") in excluded_jobs:
+        return False, "user_excluded_job"
+
     # 1. Integridade mínima de dados
     if not title or len(title) < 3:
         return False, "missing_or_invalid_title"
@@ -219,3 +224,4 @@ def validate_job(job: dict, prefs: dict) -> tuple[bool, str]:
             pass
 
     return True, "valid"
+

@@ -20,6 +20,8 @@ class CIEEJobSource(JobSource):
 
         roles = query.get("desired_roles") or ["Tecnologia"]
         term = roles[0] if roles else "TI"
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
         jobs: list[NormalizedJob] = []
         self.pages_crawled = 0
 
@@ -58,6 +60,10 @@ class CIEEJobSource(JobSource):
 
                     for it in items:
                         ext_id = str(it.get("codigo") or it.get("id") or "")
+                        url = f"https://web.ciee.org.br/vaga/{ext_id}" if ext_id else "https://web.ciee.org.br"
+                        if ext_id in known_ids or url in known_urls:
+                            continue
+
                         title = str(it.get("titulo") or it.get("curso") or f"Estágio {term}").strip()
                         company = str(it.get("empresa") or "Empresa Parceira CIEE").strip()
                         city = it.get("cidade") or ""
@@ -96,7 +102,7 @@ class CIEEJobSource(JobSource):
                         nj = NormalizedJob(
                             external_id=ext_id,
                             source=self.name,
-                            url=f"https://web.ciee.org.br/vaga/{ext_id}" if ext_id else "https://web.ciee.org.br",
+                            url=url,
                             title=title,
                             company=company,
                             location=location,

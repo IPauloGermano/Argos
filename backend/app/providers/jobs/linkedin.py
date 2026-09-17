@@ -65,6 +65,10 @@ class LinkedInJobSource(JobSource):
         # Limita para máxima velocidade e proteção contra rate limit do LinkedIn
         search_targets = search_targets[:6]
 
+        known_urls = query.get("known_urls") or set()
+        max_age = query.get("max_job_age_days") or 60
+        time_filter = "r86400" if max_age <= 1 else ("r604800" if max_age <= 7 else "r2592000")
+
         jobs: list[NormalizedJob] = []
         seen_urls: set[str] = set()
         self.pages_crawled = 0
@@ -79,6 +83,7 @@ class LinkedInJobSource(JobSource):
                     "keywords": target["keywords"],
                     "location": target["location"],
                     "start": 0,
+                    "f_TPR": time_filter,
                 }
                 if target.get("geoId"):
                     params["geoId"] = target["geoId"]
@@ -115,7 +120,7 @@ class LinkedInJobSource(JobSource):
                         if not ("/jobs/view/" in job_url or "/jobs/" in job_url):
                             continue
 
-                        if job_url in seen_urls:
+                        if job_url in seen_urls or job_url in known_urls:
                             continue
                         seen_urls.add(job_url)
 

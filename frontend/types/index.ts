@@ -15,9 +15,12 @@ export type Job = {
   salary_max?: number | null;
   currency: string;
   published_at?: string | null;
+  discovered_at?: string | null;
   date_status?: string;
   status?: string;
+  is_dismissed?: boolean;
   alternative_sources?: any[];
   score?: number | null;
   reasoning: string[];
 };
+

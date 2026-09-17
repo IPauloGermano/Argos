@@ -4,7 +4,7 @@ import { api } from "../../lib/api";
 import JobCard from "../../components/JobCard";
 
 export default function JobsPage() {
-  const [activeTab, setActiveTab] = useState<"all" | "favorites">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "new" | "favorites" | "ignored">("all");
   const [jobs, setJobs] = useState<any[]>([]);
   const [favorites, setFavorites] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,8 +22,9 @@ export default function JobsPage() {
   const [preferredCityDisplay, setPreferredCityDisplay] = useState<string>("");
   const [preferredTech, setPreferredTech] = useState<string>("");
 
-  const loadAll = async (overrideParams?: any) => {
+  const loadAll = async (overrideParams?: any, targetTab?: "all" | "new" | "favorites" | "ignored") => {
     setLoading(true);
+    const currentTab = targetTab || activeTab;
     const params = overrideParams || f;
     const q = new URLSearchParams();
     if (params.search) q.set("search", params.search);
@@ -33,6 +34,8 @@ export default function JobsPage() {
     if (params.source) q.set("source", params.source);
     if (params.employment_type) q.set("employment_type", params.employment_type);
     if (params.location) q.set("location", params.location);
+    if (currentTab === "new") q.set("only_new", "true");
+    if (currentTab === "ignored") q.set("exclude_dismissed", "false");
     q.set("limit", "200"); // teto da API: sem isso o backend devolve só 50
 
     try {
@@ -47,6 +50,11 @@ export default function JobsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const switchTab = (tab: "all" | "new" | "favorites" | "ignored") => {
+    setActiveTab(tab);
+    loadAll(f, tab);
   };
 
   useEffect(() => {
@@ -97,7 +105,9 @@ export default function JobsPage() {
   const displayedJobs =
     activeTab === "favorites"
       ? jobs.filter((j) => favoriteIds.includes(j.id))
-      : jobs;
+      : activeTab === "ignored"
+      ? jobs.filter((j) => j.is_dismissed)
+      : jobs.filter((j) => !j.is_dismissed);
 
   return (
     <div className="space-y-5">
@@ -111,14 +121,14 @@ export default function JobsPage() {
         </p>
       </div>
 
-      {/* Seletor de Abas: Todas as Vagas vs Salvas */}
-      <div className="flex items-center gap-2 border-b border-surface-border pb-1" role="tablist">
+      {/* Seletor de Abas: Todas as Vagas, Novas, Salvas e Ignoradas */}
+      <div className="flex items-center gap-2 border-b border-surface-border pb-1 overflow-x-auto" role="tablist">
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === "all"}
-          onClick={() => setActiveTab("all")}
-          className={`px-4 py-2.5 text-xs sm:text-sm font-semibold border-b-2 transition-all inline-flex items-center gap-2 min-h-[44px] ${
+          onClick={() => switchTab("all")}
+          className={`px-4 py-2.5 text-xs sm:text-sm font-semibold border-b-2 transition-all inline-flex items-center gap-2 min-h-[44px] shrink-0 ${
             activeTab === "all"
               ? "border-brand-500 text-white font-bold"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
@@ -126,16 +136,35 @@ export default function JobsPage() {
         >
           <span>💼 Todas as Oportunidades</span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-surface-elevated text-zinc-300">
-            {jobs.length}
+            {activeTab === "all" ? displayedJobs.length : jobs.filter(j => !j.is_dismissed).length}
           </span>
         </button>
 
         <button
           type="button"
           role="tab"
+          aria-selected={activeTab === "new"}
+          onClick={() => switchTab("new")}
+          className={`px-4 py-2.5 text-xs sm:text-sm font-semibold border-b-2 transition-all inline-flex items-center gap-2 min-h-[44px] shrink-0 ${
+            activeTab === "new"
+              ? "border-sky-500 text-sky-300 font-bold"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <span>✨ Apenas Novas (24h)</span>
+          {activeTab === "new" && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-sky-950/80 text-sky-300 border border-sky-500/40">
+              {displayedJobs.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          role="tab"
           aria-selected={activeTab === "favorites"}
-          onClick={() => setActiveTab("favorites")}
-          className={`px-4 py-2.5 text-xs sm:text-sm font-semibold border-b-2 transition-all inline-flex items-center gap-2 min-h-[44px] ${
+          onClick={() => switchTab("favorites")}
+          className={`px-4 py-2.5 text-xs sm:text-sm font-semibold border-b-2 transition-all inline-flex items-center gap-2 min-h-[44px] shrink-0 ${
             activeTab === "favorites"
               ? "border-amber-500 text-amber-300 font-bold"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
@@ -146,10 +175,29 @@ export default function JobsPage() {
             {favorites.length}
           </span>
         </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "ignored"}
+          onClick={() => switchTab("ignored")}
+          className={`px-4 py-2.5 text-xs sm:text-sm font-semibold border-b-2 transition-all inline-flex items-center gap-2 min-h-[44px] shrink-0 ${
+            activeTab === "ignored"
+              ? "border-rose-500 text-rose-300 font-bold"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <span>🚫 Ignoradas</span>
+          {activeTab === "ignored" && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-rose-950/80 text-rose-300 border border-rose-500/40">
+              {displayedJobs.length}
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Barra de Filtros e Busca (Apenas na aba geral) */}
-      {activeTab === "all" && (
+      {/* Barra de Filtros e Busca (Apenas nas abas ativas de catálogo) */}
+      {(activeTab === "all" || activeTab === "new") && (
         <div className="surface-panel p-4 space-y-3">
           {/* Campo de Busca Livre */}
           <div className="flex flex-col sm:flex-row gap-2">
@@ -358,22 +406,32 @@ export default function JobsPage() {
         </div>
       ) : displayedJobs.length === 0 ? (
         <div className="surface-panel text-center py-16 border-dashed">
-          <span className="text-3xl mb-2 block" aria-hidden="true">{activeTab === "favorites" ? "⭐" : "🔍"}</span>
+          <span className="text-3xl mb-2 block" aria-hidden="true">
+            {activeTab === "favorites" ? "⭐" : activeTab === "new" ? "✨" : activeTab === "ignored" ? "🚫" : "🔍"}
+          </span>
           <p className="font-semibold text-zinc-200">
             {activeTab === "favorites"
               ? "Você ainda não salvou nenhuma vaga"
+              : activeTab === "new"
+              ? "Nenhuma nova vaga catalogada nas últimas 24 horas"
+              : activeTab === "ignored"
+              ? "Você não possui nenhuma vaga ignorada"
               : "Nenhuma vaga corresponde aos filtros selecionados"}
           </p>
           <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1 mb-4">
             {activeTab === "favorites"
               ? "Clique no ícone de estrela nas vagas do catálogo para salvá-las aqui e consultá-las facilmente."
+              : activeTab === "new"
+              ? "O Hermes continua varrendo as fontes 24/7. Novas oportunidades descobertas aparecerão aqui automaticamente."
+              : activeTab === "ignored"
+              ? "Vagas que você ignorar com o botão '✕' aparecerão aqui caso deseje revisá-las ou restaurá-las."
               : "Tente ajustar ou limpar os filtros de busca para ver mais oportunidades."}
           </p>
-          {activeTab === "favorites" ? (
+          {activeTab !== "all" ? (
             <button
               type="button"
               className="btn-primary text-xs min-h-[42px] px-4"
-              onClick={() => setActiveTab("all")}
+              onClick={() => switchTab("all")}
             >
               Explorar Todas as Vagas
             </button>
@@ -400,6 +458,12 @@ export default function JobsPage() {
                 } else {
                   setFavorites((prev) => prev.filter((fav: any) => fav.job_id !== jobId));
                 }
+              }}
+              initialDismissed={j.is_dismissed}
+              onDismissChange={(jobId, isDismissed) => {
+                setJobs((prev) =>
+                  prev.map((item) => (item.id === jobId ? { ...item, is_dismissed: isDismissed } : item))
+                );
               }}
             />
           ))}

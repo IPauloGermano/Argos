@@ -40,6 +40,8 @@ class JobicyJobSource(JobSource):
             return []
 
         roles: list[str] = query.get("desired_roles") or ["python"]
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
         jobs: list[NormalizedJob] = []
         seen_ids: set[str] = set()
         self.pages_crawled = 0
@@ -90,7 +92,10 @@ class JobicyJobSource(JobSource):
                         company = (item.get("companyName") or "").strip()
                         geo = (item.get("jobGeo") or "USA / Worldwide").strip()
 
+                        ext_id = f"jobicy-{job_id}"
                         if not job_id or not title or not url or job_id in seen_ids:
+                            continue
+                        if ext_id in known_ids or job_id in known_ids or url in known_urls:
                             continue
                         seen_ids.add(job_id)
 

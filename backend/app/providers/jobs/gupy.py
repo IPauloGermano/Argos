@@ -150,6 +150,9 @@ class GupyJobSource(JobSource):
             if t not in unique_terms:
                 unique_terms.append(t)
 
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
+
         jobs: list[NormalizedJob] = []
         seen_ids: set[str] = set()
         self.pages_crawled = 0
@@ -184,14 +187,25 @@ class GupyJobSource(JobSource):
                         if not items:
                             break
 
+                        new_on_page = 0
                         for item in items:
+                            ext_id = str(item.get("id") or "")
+                            job_url = str(item.get("jobUrl") or f"https://portal.gupy.io/job/{ext_id}")
+                            if ext_id in known_ids or job_url in known_urls:
+                                continue
+
                             try:
                                 nj = self._normalize(item)
                                 if nj.external_id not in seen_ids:
                                     seen_ids.add(nj.external_id)
                                     jobs.append(nj)
+                                    new_on_page += 1
                             except Exception:
                                 continue
+
+                        # Se a primeira página inteira já foi coletada anteriormente, não gasta requisição com página 2
+                        if new_on_page == 0:
+                            break
 
                         if self.pages_crawled * PAGE_SIZE >= total:
                             break

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 import re
 import unicodedata
 from typing import Optional
@@ -5,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
 from app.core.database import get_db
-from app.models.entities import Job, JobMatch, JobChangelog
+from app.models.entities import Job, JobMatch, JobChangelog, SearchPreferences, User
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -50,12 +51,25 @@ def list_jobs(
     area: Optional[str] = None,
     employment_type: Optional[str] = None,
     status: Optional[str] = "active",
+    only_new: bool = False,
+    exclude_dismissed: bool = True,
     limit: int = Query(50, le=200),
     offset: int = 0,
 ):
     q = select(Job, JobMatch).outerjoin(JobMatch, JobMatch.job_id == Job.id)
     if status and status != "all":
         q = q.where(Job.status == status)
+
+    prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
+    excluded_set = set(prefs.excluded_jobs or []) if prefs else set()
+
+    if exclude_dismissed and excluded_set:
+        q = q.where(Job.id.not_in(list(excluded_set)))
+
+    if only_new:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        q = q.where((Job.discovered_at >= cutoff) | (Job.published_at >= cutoff))
+
     if search:
         variants = _search_variants(search)
         search_clauses = []
@@ -108,9 +122,11 @@ def list_jobs(
             "salary_max": j.salary_max,
             "currency": j.currency,
             "published_at": j.published_at.isoformat() if j.published_at else None,
+            "discovered_at": j.discovered_at.isoformat() if j.discovered_at else None,
             "date_status": j.date_status,
             "status": j.status,
             "status_reason": j.status_reason,
+            "is_dismissed": j.id in excluded_set,
             "alternative_sources": j.alternative_sources or [],
             "score": m.score if m else None,
             "reasoning": (m.reasoning if m else []) or []
@@ -128,6 +144,8 @@ def job_detail(job_id: int, db: Session = Depends(get_db)):
     changelogs = db.scalars(
         select(JobChangelog).where(JobChangelog.job_id == job_id).order_by(JobChangelog.created_at.desc())
     ).all()
+    prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
+    excluded_set = set(prefs.excluded_jobs or []) if prefs else set()
 
     return {
         "id": j.id,
@@ -148,9 +166,11 @@ def job_detail(job_id: int, db: Session = Depends(get_db)):
         "requirements": j.requirements or [],
         "nice_to_have": j.nice_to_have or [],
         "published_at": j.published_at.isoformat() if j.published_at else None,
+        "discovered_at": j.discovered_at.isoformat() if j.discovered_at else None,
         "date_status": j.date_status,
         "status": j.status,
         "status_reason": j.status_reason,
+        "is_dismissed": j.id in excluded_set,
         "alternative_sources": j.alternative_sources or [],
         "score": m.score if m else None,
         "scores": {
@@ -172,3 +192,42 @@ def job_detail(job_id: int, db: Session = Depends(get_db)):
             for chg in changelogs
         ]
     }
+
+
+@router.post("/{job_id}/dismiss")
+def dismiss_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(404, "Vaga não encontrada")
+
+    prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
+    if not prefs:
+        user = db.scalar(select(User).order_by(User.id).limit(1))
+        if not user:
+            user = User(name="Usuário", email="user@hermes.local")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        prefs = SearchPreferences(user_id=user.id)
+        db.add(prefs)
+        db.commit()
+        db.refresh(prefs)
+
+    excluded = list(prefs.excluded_jobs or [])
+    if job_id not in excluded:
+        excluded.append(job_id)
+        prefs.excluded_jobs = excluded
+        db.commit()
+
+    return {"status": "ok", "job_id": job_id, "dismissed": True}
+
+
+@router.post("/{job_id}/undismiss")
+def undismiss_job(job_id: int, db: Session = Depends(get_db)):
+    prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
+    if prefs and prefs.excluded_jobs and job_id in prefs.excluded_jobs:
+        excluded = [jid for jid in prefs.excluded_jobs if jid != job_id]
+        prefs.excluded_jobs = excluded
+        db.commit()
+
+    return {"status": "ok", "job_id": job_id, "dismissed": False}

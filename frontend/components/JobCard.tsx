@@ -8,19 +8,29 @@ interface JobCardProps {
   job: Job;
   initialFavorite?: boolean;
   onFavoriteChange?: (jobId: number, isFav: boolean) => void;
+  initialDismissed?: boolean;
+  onDismissChange?: (jobId: number, isDismissed: boolean) => void;
 }
 
 export default function JobCard({
   job,
   initialFavorite = false,
   onFavoriteChange,
+  initialDismissed = false,
+  onDismissChange,
 }: JobCardProps) {
   const [isFavorite, setIsFavorite] = useState(initialFavorite);
+  const [isDismissed, setIsDismissed] = useState(job.is_dismissed || initialDismissed || false);
+  const [dismissLoading, setDismissLoading] = useState(false);
   const [feedback, setFeedback] = useState<"pos" | "neg" | null>(null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
 
   const score = job.score;
   const isHighMatch = score != null && score >= 75;
+
+  const isNew = job.discovered_at
+    ? (Date.now() - new Date(job.discovered_at).getTime()) < 24 * 60 * 60 * 1000
+    : false;
 
   const workMode = (job.work_mode || "").toLowerCase();
   const modeLabel =
@@ -34,6 +44,30 @@ export default function JobCard({
 
   const bestReason =
     job.reasoning && job.reasoning.length > 0 ? job.reasoning[0] : null;
+
+  const handleToggleDismiss = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dismissLoading) return;
+    const nextState = !isDismissed;
+    setIsDismissed(nextState);
+    if (onDismissChange) onDismissChange(job.id, nextState);
+
+    setDismissLoading(true);
+    try {
+      if (nextState) {
+        await api.dismissJob(job.id);
+      } else {
+        await api.undismissJob(job.id);
+      }
+    } catch (err) {
+      console.error("Erro ao alternar status de ignorada:", err);
+      setIsDismissed(!nextState);
+      if (onDismissChange) onDismissChange(job.id, !nextState);
+    } finally {
+      setDismissLoading(false);
+    }
+  };
 
   const handleToggleFavorite = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -123,6 +157,22 @@ export default function JobCard({
               <span className="text-sm" aria-hidden="true">{isFavorite ? "⭐" : "☆"}</span>
             </button>
 
+            {/* Botão de Ignorar / Ocultar */}
+            <button
+              type="button"
+              onClick={handleToggleDismiss}
+              disabled={dismissLoading}
+              className={`p-2 rounded-lg border transition-all min-h-[44px] min-w-[44px] flex items-center justify-center ${
+                isDismissed
+                  ? "bg-rose-500/20 border-rose-500/60 text-rose-300 shadow-sm"
+                  : "bg-surface-elevated border-surface-border text-zinc-400 hover:text-rose-400 hover:bg-surface-subtle"
+              }`}
+              title={isDismissed ? "Restaurar vaga (não ignorar)" : "Ignorar vaga (não recomendar novamente)"}
+              aria-label={isDismissed ? `Restaurar vaga ${job.title}` : `Ignorar vaga ${job.title}`}
+            >
+              <span className="text-xs font-bold" aria-hidden="true">{isDismissed ? "🚫" : "✕"}</span>
+            </button>
+
             {/* Destaque Límpido de Compatibilidade */}
             {score != null && (
               <div
@@ -140,8 +190,20 @@ export default function JobCard({
           </div>
         </div>
 
-        {/* Linha de Metadados: Salário e Origem (Legibilidade garantida >= 12px) */}
+        {/* Linha de Metadados: Salário, Selo Nova e Origem */}
         <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 my-2.5">
+          {isNew && (
+            <span className="font-semibold text-sky-300 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-500/40 inline-flex items-center gap-1">
+              ✨ Nova
+            </span>
+          )}
+
+          {isDismissed && (
+            <span className="font-semibold text-rose-300 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-500/40 inline-flex items-center gap-1">
+              🚫 Ignorada
+            </span>
+          )}
+
           {job.salary_max && (
             <span className="font-semibold text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-500/30">
               💰 {job.currency || "R$"} {Number(job.salary_min || 0).toLocaleString("pt-BR")} - {Number(job.salary_max).toLocaleString("pt-BR")}

@@ -98,4 +98,7 @@ export const api = {
       throw err;
     }
   },
+  dismissJob: (jobId: number) => req(`/api/jobs/${jobId}/dismiss`, { method: "POST" }),
+  undismissJob: (jobId: number) => req(`/api/jobs/${jobId}/undismiss`, { method: "POST" }),
 };
+

@@ -22,6 +22,7 @@ class GlassdoorJobSource(JobSource):
         roles = query.get("desired_roles") or ["Desenvolvedor"]
         term = roles[0] if roles else "tecnologia"
         slug = urllib.parse.quote(term.lower().replace(" ", "-"))
+        known_urls = query.get("known_urls") or set()
         jobs: list[NormalizedJob] = []
         self.pages_crawled = 0
 
@@ -52,10 +53,14 @@ class GlassdoorJobSource(JobSource):
                     if not link_tag:
                         continue
 
-                    title = link_tag.get_text(strip=True)
                     job_url = link_tag["href"]
                     if not job_url.startswith("http"):
                         job_url = f"https://www.glassdoor.com.br{job_url}"
+
+                    if job_url in known_urls:
+                        continue
+
+                    title = link_tag.get_text(strip=True)
 
                     company_tag = card.find("span", class_=lambda c: c and "Employer" in c)
                     company = company_tag.get_text(strip=True) if company_tag else "Empresa Confidencial"

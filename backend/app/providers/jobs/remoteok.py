@@ -72,6 +72,8 @@ class RemoteOKJobSource(JobSource):
             return []
 
         roles = query.get("desired_roles") or ["Developer"]
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
         jobs: list[NormalizedJob] = []
         self.pages_crawled = 0
 
@@ -97,6 +99,12 @@ class RemoteOKJobSource(JobSource):
                 for item in items:
                     if not isinstance(item, dict) or not item.get("position"):
                         continue  # pula aviso legal / entradas invalidas
+
+                    ext_id = f"remoteok-{item.get('id') or item.get('slug')}"
+                    job_url = str(item.get("url") or "")
+                    if ext_id in known_ids or job_url in known_urls:
+                        continue
+
                     if not self._matches(item, roles):
                         continue
 
@@ -104,9 +112,9 @@ class RemoteOKJobSource(JobSource):
                     location = str(item.get("location") or "").strip() or "Remoto"
 
                     jobs.append(NormalizedJob(
-                        external_id=f"remoteok-{item.get('id') or item.get('slug')}",
+                        external_id=ext_id,
                         source=self.name,
-                        url=str(item.get("url") or ""),
+                        url=job_url,
                         title=str(item.get("position") or "").strip(),
                         company=str(item.get("company") or "").strip(),
                         location=location,

@@ -31,6 +31,8 @@ class RemotiveJobSource(JobSource):
             return []
 
         roles: list[str] = query.get("desired_roles") or ["python"]
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
         jobs: list[NormalizedJob] = []
         self.pages_crawled = 0
 
@@ -42,6 +44,11 @@ class RemotiveJobSource(JobSource):
                     r.raise_for_status()
 
                     for item in r.json().get("jobs", [])[:20]:
+                        ext_id = f"remotive-{item.get('id')}"
+                        job_url = item.get("url") or ""
+                        if ext_id in known_ids or job_url in known_urls:
+                            continue
+
                         desc = re.sub(r"<[^>]+>", " ", item.get("description") or "")
                         pub_dt = None
                         date_status = "unknown_date"

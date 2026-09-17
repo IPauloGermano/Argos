@@ -23,6 +23,8 @@ class CorporateATSJobSource(JobSource):
         roles = query.get("desired_roles") or ["Developer", "Engineer"]
         preferred_companies = query.get("preferred_companies") or []
         boards = [c.lower().replace(" ", "") for c in preferred_companies] if preferred_companies else DEFAULT_GREENHOUSE_BOARDS[:2]
+        known_urls = query.get("known_urls") or set()
+        known_ids = query.get("known_ids") or set()
 
         jobs: list[NormalizedJob] = []
         self.pages_crawled = 0
@@ -53,6 +55,8 @@ class CorporateATSJobSource(JobSource):
 
                         job_id = str(it.get("id") or "")
                         job_url = str(it.get("absolute_url") or f"https://boards.greenhouse.io/{board}/jobs/{job_id}")
+                        if job_id in known_ids or job_url in known_urls:
+                            continue
                         location = it.get("location", {}).get("name", "Remoto / Global")
                         work_mode = "remote" if "remote" in location.lower() or "remoto" in location.lower() else "onsite"
 
