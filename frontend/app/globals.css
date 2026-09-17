@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-base text-zinc-100 antialiased selection:bg-brand-500 selection:text-black min-h-screen font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Chão de legibilidade estrito do Impeccable: nenhum texto legível abaixo de 12px */
+  p, span, a, label, button, input, select, textarea {
+    font-size: max(12px, 1em);
+  }
+}
+
+@layer components {
+  /* Painéis e Superfícies Editoriais */
+  .surface-panel {
+    @apply bg-surface-card border border-surface-border rounded-xl p-5 shadow-sm transition-all;
+  }
+
+  .surface-panel-hover {
+    @apply bg-surface-card border border-surface-border rounded-xl p-5 shadow-sm hover:border-surface-borderLight hover:bg-surface-elevated transition-all;
+  }
+
+  /* Campos de Entrada com Alto Contraste e Foco Preciso */
+  .input-field {
+    @apply bg-surface-base border border-surface-border rounded-lg px-3.5 py-2.5 w-full text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all;
+    font-size: 14px;
+  }
+
+  /* Botão Primário Hermes: Ouro Âmbar com Texto Escuro de Máximo Contraste (WCAG AAA) */
+  .btn-primary {
+    @apply bg-brand-500 hover:bg-brand-400 active:bg-brand-600 text-stone-950 font-bold rounded-lg px-4 py-2.5 text-sm shadow-sm inline-flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base;
+    min-height: 44px;
+  }
+
+  /* Botão Secundário Calmo */
+  .btn-ghost {
+    @apply bg-surface-base hover:bg-surface-interactive text-zinc-200 border border-surface-border rounded-lg px-3.5 py-2.5 text-sm inline-flex items-center justify-center gap-2 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base;
+    min-height: 44px;
+  }
+
+  /* Pílulas de Dados Funcionais e Discretas */
+  .badge-match {
+    @apply bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-xs font-bold px-3 py-1 rounded-full inline-flex items-center gap-1.5;
+  }
+
+  .badge-neutral {
+    @apply bg-surface-elevated border border-surface-border text-zinc-300 text-xs font-medium px-3 py-1 rounded-full inline-flex items-center gap-1.5;
+  }
+
+  .badge-amber {
+    @apply bg-amber-950/50 border border-amber-500/40 text-amber-300 text-xs font-semibold px-3 py-1 rounded-full inline-flex items-center gap-1.5;
+  }
+}
