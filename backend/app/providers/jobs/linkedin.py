@@ -32,9 +32,14 @@ class LinkedInJobSource(JobSource):
             if not clean:
                 continue
             lower = clean.lower()
-            if lower in ("remoto", "remote", "brasil", "brazil"):
-                continue
-            target = f"{clean}, Brasil" if not lower.endswith("brasil") else clean
+            known_foreign = (
+                "chile", "paraguai", "paraguay", "estados unidos", "united states",
+                "usa", "us", "argentina", "uruguay", "uruguai", "mexico", "méxico",
+                "colombia", "colômbia", "peru", "portugal", "canada", "canadá",
+                "reino unido", "uk", "alemanha", "germany", "espanha", "spain"
+            )
+            is_foreign = any(c in lower for c in known_foreign)
+            target = clean if (is_foreign or lower.endswith("brasil") or lower.endswith("brazil")) else f"{clean}, Brasil"
             if target not in regional_targets:
                 regional_targets.append(target)
 

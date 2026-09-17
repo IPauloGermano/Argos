@@ -84,7 +84,7 @@ export default function AgentControl({
   };
 
   const isRunning = status?.running;
-  const sources = status?.sources || ["gupy", "linkedin", "indeed", "vagas", "ciee", "greenhouse", "remotive"];
+  const sources = status?.sources || ["gupy", "linkedin", "remoteok", "vagas", "ciee", "greenhouse", "remotive", "getonbrd", "weworkremotely", "jobicy"];
 
   return (
     <div className="surface-panel p-5 rounded-xl transition-all border border-surface-border">

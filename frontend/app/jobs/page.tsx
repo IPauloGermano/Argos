@@ -307,12 +307,16 @@ export default function JobsPage() {
             >
               <option value="">Todas Plataformas</option>
               <option value="linkedin">LinkedIn</option>
-              <option value="greenhouse">Greenhouse</option>
+              <option value="getonbrd">Get on Board (Chile/LatAm)</option>
+              <option value="weworkremotely">We Work Remotely (EUA/Global)</option>
+              <option value="jobicy">Jobicy (EUA/Remoto)</option>
+              <option value="remoteok">Remote OK</option>
+              <option value="remotive">Remotive</option>
               <option value="gupy">Gupy</option>
+              <option value="greenhouse">Greenhouse</option>
               <option value="indeed">Indeed</option>
               <option value="vagas">Vagas.com</option>
               <option value="ciee">CIEE</option>
-              <option value="remotive">Remotive</option>
             </select>
 
             <select

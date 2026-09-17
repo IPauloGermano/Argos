@@ -12,7 +12,7 @@ compatibilidade com o perfil e notifica (Telegram/Discord/e-mail).
 ## Stack
 - Backend: FastAPI + SQLAlchemy + Celery + APScheduler (`backend/app`)
 - Fontes de vagas: `backend/app/providers/jobs/` (gupy, linkedin, indeed,
-  remoteok, vagas, ciee, greenhouse, remotive, mock, glassdoor)
+  remoteok, vagas, ciee, greenhouse, remotive, getonbrd, weworkremotely, jobicy, mock, glassdoor)
 - Browser fallback (anti-bot, só leitura): `backend/app/providers/browser/`
 - Frontend: Next.js 14 + Tailwind (`frontend/`)
 - Banco: Postgres (docker) ou SQLite (local). Fila: Redis.

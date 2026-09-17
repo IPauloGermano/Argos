@@ -345,7 +345,10 @@ class TelegramBotService:
             for cb in cbs:
                 if cb.source_name not in cb_map:
                     cb_map[cb.source_name] = cb.state
-            all_sources = ["linkedin", "gupy", "remotive", "greenhouse", "vagas", "ciee", "indeed"]
+            all_sources = [
+                "linkedin", "gupy", "remotive", "greenhouse", "vagas", "ciee", "indeed",
+                "getonbrd", "weworkremotely", "jobicy"
+            ]
 
             lines = ["🌐 <b>Fontes de Oportunidades Conectadas:</b>\n"]
             for src in all_sources:

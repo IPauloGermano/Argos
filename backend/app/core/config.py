@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     DEFAULT_SEARCH_FREQUENCY_MINUTES: int = 60
     MAX_CONCURRENT_SOURCE_CRAWLS: int = 4
 
-    # Sources (indeed desativado: RSS descontinuado + busca com bloqueio anti-bot)
-    JOB_SOURCES: str = "gupy,linkedin,remoteok,vagas,ciee,greenhouse,remotive"
+    # Sources (fontes nacionais e internacionais)
+    JOB_SOURCES: str = "gupy,linkedin,remoteok,vagas,ciee,greenhouse,remotive,getonbrd,weworkremotely,jobicy"
     MOCK_JOBS_COUNT: int = 0
     SOURCE_TIMEOUT_SECONDS: int = 30
     SOURCE_MAX_PAGES: int = 5

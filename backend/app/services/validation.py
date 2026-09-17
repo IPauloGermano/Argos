@@ -76,7 +76,7 @@ FOREIGN_LOCATION_RE = re.compile(
     r"(estados unidos|united states|seattle|san francisco|los angeles|california|new york|nova york|nova iorque|texas|"
     r"virginia|maryland|austin|denver|colorado|ohio|boston|massachusetts|malaysia|kuala lumpur|"
     r"united kingdom|london|israel|canada|germany|deutschland|singapore|australia|"
-    r"chile|santiago|argentina|buenos aires|colombia|bogota|peru|lima|mexico|poland|polonia|thailand|bangkok)",
+    r"chile|santiago|paraguai|paraguay|asuncion|asunci[óo]n|uruguay|uruguai|argentina|buenos aires|colombia|bogota|peru|lima|mexico|poland|polonia|thailand|bangkok)",
     re.IGNORECASE
 )
 

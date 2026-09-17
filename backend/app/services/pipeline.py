@@ -47,7 +47,7 @@ def _get_or_create_user(db: Session) -> User:
                 max_job_age_days=60,
                 minimum_match_score=70,
                 search_frequency_minutes=60,
-                enabled_sources=["gupy", "linkedin", "remoteok", "vagas", "ciee", "greenhouse", "remotive"],
+                enabled_sources=["gupy", "linkedin", "remoteok", "vagas", "ciee", "greenhouse", "remotive", "getonbrd", "weworkremotely", "jobicy"],
                 telegram_enabled=False,
                 discord_enabled=False,
                 email_enabled=False
@@ -81,7 +81,7 @@ def _get_or_create_user(db: Session) -> User:
         max_job_age_days=60,
         minimum_match_score=70,
         search_frequency_minutes=60,
-        enabled_sources=["gupy", "linkedin", "remoteok", "vagas", "ciee", "greenhouse", "remotive"],
+        enabled_sources=["gupy", "linkedin", "remoteok", "vagas", "ciee", "greenhouse", "remotive", "getonbrd", "weworkremotely", "jobicy"],
         telegram_enabled=False,
         discord_enabled=False,
         email_enabled=False

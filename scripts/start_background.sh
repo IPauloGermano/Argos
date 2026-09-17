@@ -23,7 +23,7 @@ fi
 export DATABASE_URL="${DATABASE_URL:-sqlite:///./hermes.db}"
 export ENABLE_BUILTIN_SCHEDULER="${ENABLE_BUILTIN_SCHEDULER:-true}"
 export DEFAULT_SEARCH_FREQUENCY_MINUTES="${DEFAULT_SEARCH_FREQUENCY_MINUTES:-60}"
-export JOB_SOURCES="${JOB_SOURCES:-gupy,linkedin,indeed,vagas,ciee,greenhouse,remotive}"
+export JOB_SOURCES="${JOB_SOURCES:-gupy,linkedin,remoteok,vagas,ciee,greenhouse,remotive,getonbrd,weworkremotely,jobicy}"
 
 # Inicia Backend em segundo plano com setsid e nohup
 echo "• Iniciando Backend (porta 8000)..."
