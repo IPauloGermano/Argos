@@ -13,6 +13,7 @@ class LinkedInJobSource(JobSource):
     def __init__(self, timeout: float = 25.0, max_pages: int = 3):
         super().__init__(timeout=timeout, max_pages=max_pages)
         self.base_url = settings.LINKEDIN_GUEST_API_URL
+        self.rate_limit_delay_seconds = 0.3
 
     async def search(self, query: dict) -> list[NormalizedJob]:
         if not self.circuit_breaker.can_execute():
@@ -32,6 +33,8 @@ class LinkedInJobSource(JobSource):
             if not clean:
                 continue
             lower = clean.lower()
+            if lower in ("remoto", "remote"):
+                continue
             known_foreign = (
                 "chile", "paraguai", "paraguay", "estados unidos", "united states",
                 "usa", "us", "argentina", "uruguay", "uruguai", "mexico", "méxico",
@@ -42,23 +45,25 @@ class LinkedInJobSource(JobSource):
             target = clean if (is_foreign or lower.endswith("brasil") or lower.endswith("brazil")) else f"{clean}, Brasil"
             if target not in regional_targets:
                 regional_targets.append(target)
+        if not regional_targets:
+            regional_targets = ["Brasil"]
 
-        # Monta buscas direcionadas: locais regionais prioritários com termos de TI/Dev alinhados ao perfil
+        # Monta buscas direcionadas focadas no perfil sem redundâncias lentas
         search_targets: list[dict] = []
-        user_roles = [r for r in (query.get("desired_roles") or []) if r]
-        regional_tech_terms = ["Desenvolvedor", "Estágio TI", "Software", "Python", "Backend"]
-        if user_roles:
-            for r in reversed(user_roles[:3]):
-                if r not in regional_tech_terms:
-                    regional_tech_terms.insert(0, r)
+        user_roles = [r.strip() for r in (query.get("desired_roles") or []) if r.strip()]
+        tech_terms = list(user_roles[:3]) if user_roles else ["Desenvolvedor"]
 
         for reg in regional_targets:
-            for kw in regional_tech_terms:
-                search_targets.append({"keywords": kw, "location": reg, "geoId": None})
+            for kw in tech_terms:
+                geo_id = "106057199" if reg.lower() in ("brasil", "brasil, brasil") else None
+                search_targets.append({"keywords": kw, "location": reg, "geoId": geo_id})
 
-        # Adiciona busca nacional no Brasil (com geoId 106057199 para restringir estritamente ao Brasil)
-        for kw in ["Desenvolvedor Python", "Desenvolvedor Backend", "Estágio TI"]:
-            search_targets.append({"keywords": kw, "location": "Brasil", "geoId": "106057199"})
+        # Adiciona no máximo 1 busca nacional com geoId se não coberto
+        if "Brasil" not in regional_targets and not any(t.get("geoId") for t in search_targets):
+            search_targets.append({"keywords": tech_terms[0], "location": "Brasil", "geoId": "106057199"})
+
+        # Limita para máxima velocidade e proteção contra rate limit do LinkedIn
+        search_targets = search_targets[:6]
 
         jobs: list[NormalizedJob] = []
         seen_urls: set[str] = set()

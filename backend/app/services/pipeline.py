@@ -155,41 +155,67 @@ def _job_to_dict(nj) -> dict:
 async def _collect_from_sources(query: dict, enabled_sources: list[str] = None) -> tuple[list, list[str], dict, int]:
     from app.providers.jobs.factory import get_job_sources
 
+    sources = get_job_sources(enabled_sources)
+    if not sources:
+        return [], [], {}, 0
+
+    async def _fetch_source(src):
+        src_pages = 0
+        src_found = 0
+        for attempt in range(2):
+            try:
+                timeout_limit = min(src.timeout, 20.0) + 2
+                found = await asyncio.wait_for(src.search(query), timeout=timeout_limit)
+                items = found or []
+                src_pages = getattr(src, "pages_crawled", 1)
+                src_found = len(items)
+                return {
+                    "name": src.name,
+                    "items": items,
+                    "error": None,
+                    "stats": {
+                        "pages": src_pages,
+                        "found": src_found,
+                        "status": "ok"
+                    },
+                    "pages": src_pages
+                }
+            except Exception as e:
+                err_msg = f"{src.name}: {type(e).__name__} ({str(e)[:100]})"
+                if attempt == 1:
+                    return {
+                        "name": src.name,
+                        "items": [],
+                        "error": err_msg,
+                        "stats": {
+                            "pages": getattr(src, "pages_crawled", 0),
+                            "found": 0,
+                            "status": "error",
+                            "error": err_msg
+                        },
+                        "pages": getattr(src, "pages_crawled", 0)
+                    }
+                await asyncio.sleep(0.5)
+
+    # Coleta todas as fontes em paralelo com asyncio.gather
+    results = await asyncio.gather(*[_fetch_source(src) for src in sources], return_exceptions=True)
+
     collected: list = []
     errors: list[str] = []
     source_stats: dict = {}
     total_pages_crawled = 0
 
-    sources = get_job_sources(enabled_sources)
-    for src in sources:
-        src_pages = 0
-        src_found = 0
-        for attempt in range(3):
-            try:
-                found = await asyncio.wait_for(src.search(query), timeout=src.timeout + 5)
-                items = found or []
-                collected.extend(items)
-                src_pages = getattr(src, "pages_crawled", 1)
-                src_found = len(items)
-                source_stats[src.name] = {
-                    "pages": src_pages,
-                    "found": src_found,
-                    "status": "ok"
-                }
-                break
-            except Exception as e:
-                if attempt == 2:
-                    err_msg = f"{src.name}: {type(e).__name__} ({str(e)[:100]})"
-                    errors.append(err_msg)
-                    source_stats[src.name] = {
-                        "pages": getattr(src, "pages_crawled", 0),
-                        "found": 0,
-                        "status": "error",
-                        "error": err_msg
-                    }
-                else:
-                    await asyncio.sleep(1.5 ** attempt)
-        total_pages_crawled += src_pages
+    for res in results:
+        if isinstance(res, Exception):
+            errors.append(f"collector_error: {type(res).__name__} ({str(res)[:100]})")
+            continue
+        if not res:
+            continue
+        collected.extend(res["items"])
+        if res["error"]:
+            errors.append(res["error"])
+        source_stats[res["name"]] = res["stats"]
+        total_pages_crawled += res["pages"]
 
     return collected, errors, source_stats, total_pages_crawled
 
@@ -268,6 +294,22 @@ def run_search_sync() -> dict:
             select(Job).where(Job.status != "closed").order_by(Job.id.desc()).limit(300)
         ).all()
 
+        # Otimização de I/O: Pré-carrega todos os hashes existentes no banco em uma única query
+        all_incoming_hashes = {
+            content_hash(
+                getattr(nj, "title", "") or "",
+                getattr(nj, "company", "") or "",
+                getattr(nj, "location", "") or "",
+                getattr(nj, "url", "") or "",
+                getattr(nj, "external_id", "") or ""
+            )
+            for nj in collected
+        }
+        existing_jobs_by_hash = {}
+        if all_incoming_hashes:
+            for ej in db.scalars(select(Job).where(Job.content_hash.in_(all_incoming_hashes))).all():
+                existing_jobs_by_hash[ej.content_hash] = ej
+
         seen_hashes: set[str] = set()
         seen_keys: set[str] = set()
 
@@ -306,8 +348,8 @@ def run_search_sync() -> dict:
                 stats["deduplicated"] += 1
                 continue
 
-            # 4. Deduplicação no Banco (Exact Hash)
-            existing_db_job = db.scalar(select(Job).where(Job.content_hash == ch))
+            # 4. Deduplicação no Banco (Exact Hash em memória ou query)
+            existing_db_job = existing_jobs_by_hash.get(ch)
 
             # 5. Deduplicação no Banco (Fuzzy Matching de Título e Empresa)
             if not existing_db_job:
@@ -345,7 +387,6 @@ def run_search_sync() -> dict:
                         existing_db_job.alternative_sources = alts
 
                 existing_db_job.last_checked_at = now_utc
-                db.commit()
                 continue
 
             seen_hashes.add(ch)
@@ -398,8 +439,7 @@ def run_search_sync() -> dict:
             )
             try:
                 db.add(new_job)
-                db.commit()
-                db.refresh(new_job)
+                db.flush()
 
                 # Salva correspondência e pontuação
                 db.add(JobMatch(
@@ -416,6 +456,7 @@ def run_search_sync() -> dict:
                 db.commit()
                 stats["new"] += 1
                 recent_db_jobs.append(new_job)
+                existing_jobs_by_hash[ch] = new_job
             except IntegrityError:
                 db.rollback()
                 stats["deduplicated"] += 1
@@ -437,6 +478,12 @@ def run_search_sync() -> dict:
                     stats["notified"] += 1
                 except Exception as e:
                     stats["errors"].append(f"notify:{type(e).__name__}")
+
+        # Salva em lote alterações em vagas existentes (last_checked_at, changelogs, alts)
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
 
         finished = datetime.now(timezone.utc)
         status_str = "partial_error" if errors else "completed"

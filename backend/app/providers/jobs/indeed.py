@@ -170,18 +170,17 @@ class IndeedJobSource(JobSource):
             return []
 
         jobs: list[NormalizedJob] = []
-        for page in range(self.max_pages):
+        for page in range(min(self.max_pages, 1)):
             start = page * 10
             params = {"q": keywords, "l": "Brasil", "start": start}
             url = f"https://br.indeed.com/jobs?{urllib.parse.urlencode(params)}"
             try:
-                html = await fetch_rendered_html(url)
+                html = await fetch_rendered_html(url, wait_ms=1500)
                 self.pages_crawled += 1
                 cards = self._parse_browser_cards(html)
                 if not cards:
                     break
                 jobs.extend(cards)
-                await asyncio.sleep(self.rate_limit_delay_seconds)
             except Exception as e:
                 self.circuit_breaker.record_failure(f"browser: {type(e).__name__}")
                 break
