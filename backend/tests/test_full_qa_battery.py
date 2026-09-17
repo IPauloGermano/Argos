@@ -1130,3 +1130,156 @@ def test_30_database_transient_recovery():
     assert res is not None
     db.close()
 
+
+# ==============================================================================
+# SEÇÃO 35: TESTE DE ISOLAMENTO MULTIUSUÁRIO DE FEEDBACK
+# ==============================================================================
+def test_35_multiuser_feedback_isolation():
+    """Garante que o feedback de um usuário afeta apenas a pontuação de seu próprio perfil."""
+    db = TestingSessionLocal()
+    u1 = User(name="User Test 1", email="u1_fb@hermes.local")
+    u2 = User(name="User Test 2", email="u2_fb@hermes.local")
+    db.add_all([u1, u2])
+    db.commit()
+
+    p1 = CandidateProfile(user_id=u1.id, headline="Dev Python")
+    p2 = CandidateProfile(user_id=u2.id, headline="Dev Java")
+    db.add_all([p1, p2])
+    db.commit()
+
+    job = Job(title="Dev Especial", company="Empresa FB", url="https://fb.com/1", content_hash="hash_fb_iso_1")
+    db.add(job)
+    db.commit()
+
+    m1 = JobMatch(job_id=job.id, profile_id=p1.id, score=80)
+    m2 = JobMatch(job_id=job.id, profile_id=p2.id, score=80)
+    db.add_all([m1, m2])
+    db.commit()
+
+    # User 2 dá feedback negativo
+    record_feedback(db, user_id=u2.id, job_id=job.id, is_positive=False)
+    db.refresh(m1)
+    db.refresh(m2)
+
+    assert m1.score == 80, f"Score do User 1 foi afetado indevidamente: {m1.score}"
+    assert m2.score == 70, f"Score do User 2 não foi reduzido: {m2.score}"
+    db.close()
+
+
+# ==============================================================================
+# SEÇÃO 36: TESTE DE ALIAS DE SALÁRIO EM PREFERÊNCIAS
+# ==============================================================================
+def test_36_salary_preferences_aliases():
+    """Valida aceitação e sincronização de min_salary e minimum_salary no schema e rota."""
+    from app.schemas import PreferencesUpdate, PreferencesOut
+
+    p_in = PreferencesUpdate.model_validate({"min_salary": 7500.0})
+    assert p_in.min_salary == 7500.0
+
+    p_out = PreferencesOut.model_validate({
+        "id": 1,
+        "user_id": 1,
+        "minimum_salary": 7500.0
+    })
+    assert p_out.minimum_salary == 7500.0
+    assert p_out.min_salary == 7500.0
+
+
+# ==============================================================================
+# SEÇÃO 37: TESTE DE CONTRATO DA ROTA DE FEEDBACK
+# ==============================================================================
+def test_37_feedback_api_contract():
+    """Valida que /api/feedback/jobs/{id} responde compatível com o frontend."""
+    # Cria vaga no banco de teste da API
+    db = TestingSessionLocal()
+    u = db.scalar(select(User).order_by(User.id).limit(1))
+    if not u:
+        u = User(name="Candidato API", email="candidato_api@hermes.local")
+        db.add(u)
+        db.commit()
+    j = Job(title="Vaga Feedback API", company="Corp API", url="https://corp.com/api-fb", content_hash="hash_api_fb_1")
+    db.add(j)
+    db.commit()
+    job_id = j.id
+    db.close()
+
+    # Sem feedback inicial
+    res_empty = client.get(f"/api/feedback/jobs/{job_id}")
+    assert res_empty.status_code == 200
+    data_empty = res_empty.json()
+    assert data_empty.get("feedback") is None
+
+    # Envia feedback
+    res_post = client.post(f"/api/feedback/jobs/{job_id}", json={"is_positive": True})
+    assert res_post.status_code == 200
+
+    # Consulta feedback existente: deve conter is_positive na raiz E na chave feedback
+    res_get = client.get(f"/api/feedback/jobs/{job_id}")
+    assert res_get.status_code == 200
+    data_get = res_get.json()
+    assert data_get.get("is_positive") is True
+    assert data_get.get("feedback", {}).get("is_positive") is True
+
+
+# ==============================================================================
+# SEÇÃO 38: TESTE DE CIEE SEM DATAS INVENTADAS
+# ==============================================================================
+def test_38_ciee_no_invented_date():
+    """Garante que vagas do CIEE sem data não recebem published_at inventado."""
+    from app.providers.jobs.ciee import CIEEJobSource
+    import asyncio
+    from unittest.mock import MagicMock, AsyncMock, patch
+
+    src = CIEEJobSource(max_pages=1)
+    src.circuit_breaker.record_success()
+
+    fake_item = {
+        "codigo": "12345",
+        "titulo": "Estágio em TI",
+        "empresa": "Empresa CIEE",
+        "cidade": "São Paulo",
+        "uf": "SP",
+        "valorBolsa": 1500,
+        "descricao": "Atuação com desenvolvimento"
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"itens": [fake_item]}
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_resp):
+        jobs = asyncio.run(src.search({"desired_roles": ["TI"]}))
+
+    assert len(jobs) == 1
+    assert jobs[0].published_at is None
+    assert jobs[0].date_status == "unknown_date"
+
+
+# ==============================================================================
+# SEÇÃO 39: TESTE DE /FONTES DO TELEGRAM COM CIRCUIT BREAKER
+# ==============================================================================
+def test_39_telegram_fontes_circuit_breakers():
+    """Valida que o comando /fontes do Telegram reflete os circuit breakers ativos."""
+    from app.services.telegram_bot import TelegramBotService
+    from app.services.circuit_breaker import CircuitBreaker
+
+    db = TestingSessionLocal()
+    u = db.scalar(select(User).order_by(User.id).limit(1)) or User(name="User Fontes", email="uf@hermes.local", telegram_chat_id="8888")
+    db.add(u)
+    db.commit()
+
+    # Abre circuit breaker do linkedin
+    cb = CircuitBreaker("linkedin")
+    cb.record_failure("429")
+    cb.record_failure("429")
+    cb.record_failure("429")
+    assert cb.state == "OPEN"
+
+    res = TelegramBotService.handle_command(db, u, "8888", "/fontes", [])
+    assert "Circuit Breaker Aberto" in res["text"]
+
+    # Reseta circuit breaker
+    cb.record_success()
+    db.close()
+
+
