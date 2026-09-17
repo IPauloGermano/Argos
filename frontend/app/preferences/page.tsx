@@ -265,8 +265,12 @@ export default function PreferencesPage() {
               min={0}
               step={500}
               placeholder="Ex: 5000"
-              value={p.min_salary || ""}
-              onChange={(e) => set("min_salary", e.target.value ? Number(e.target.value) : null)}
+              value={p.minimum_salary ?? p.min_salary ?? ""}
+              onChange={(e) => {
+                const val = e.target.value ? Number(e.target.value) : null;
+                set("minimum_salary", val);
+                set("min_salary", val);
+              }}
               className="input-field"
             />
           </div>

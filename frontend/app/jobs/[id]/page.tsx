@@ -20,8 +20,9 @@ export default function JobDetail({ params }: { params: { id: string } }) {
         setJob(jobData);
         const isFav = (favsData || []).some((f: any) => f.job_id === Number(params.id));
         setIsFavorite(isFav);
-        if (fbData && fbData.feedback) {
-          setFeedback(fbData.feedback.is_positive ? "pos" : "neg");
+        const fbObj = fbData?.feedback ?? fbData;
+        if (fbObj && typeof fbObj.is_positive === "boolean") {
+          setFeedback(fbObj.is_positive ? "pos" : "neg");
         }
       })
       .finally(() => setLoading(false));

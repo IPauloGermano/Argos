@@ -136,7 +136,7 @@ class JobChangelog(Base):
     old_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     new_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     change_type: Mapped[str] = mapped_column(String(32))  # salary, work_mode, status, description, location
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=__import__("sqlalchemy").func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     notified: Mapped[bool] = mapped_column(default=False)
 
     job: Mapped["Job"] = relationship(back_populates="changelogs")

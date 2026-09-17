@@ -19,6 +19,8 @@ export default function JobsPage() {
   });
 
   const [preferredCity, setPreferredCity] = useState<string>("");
+  const [preferredCityDisplay, setPreferredCityDisplay] = useState<string>("");
+  const [preferredTech, setPreferredTech] = useState<string>("");
 
   const loadAll = async (overrideParams?: any) => {
     setLoading(true);
@@ -49,10 +51,22 @@ export default function JobsPage() {
 
   useEffect(() => {
     loadAll();
-    api.get("/api/preferences").then((prefs: any) => {
+    Promise.all([
+      api.get("/api/preferences").catch(() => null),
+      api.get("/api/profile").catch(() => null),
+    ]).then(([prefs, profile]) => {
       if (prefs && Array.isArray(prefs.locations)) {
-        const city = prefs.locations.find((l: string) => !["remoto", "remote", "brasil", "brazil"].includes(l.toLowerCase()));
-        if (city) setPreferredCity(city);
+        const rawLoc = prefs.locations.find((l: string) => !["remoto", "remote", "brasil", "brazil"].includes(l.toLowerCase()));
+        if (rawLoc) {
+          const cleanCity = rawLoc.split(",")[0].split("-")[0].split("/")[0].trim();
+          setPreferredCity(cleanCity);
+          setPreferredCityDisplay(rawLoc);
+        }
+      }
+      if (profile && Array.isArray(profile.skills) && profile.skills.length > 0) {
+        setPreferredTech(profile.skills[0]);
+      } else if (prefs && Array.isArray(prefs.preferred_keywords) && prefs.preferred_keywords.length > 0) {
+        setPreferredTech(prefs.preferred_keywords[0]);
       }
     }).catch(() => {});
   }, []);
@@ -171,7 +185,7 @@ export default function JobsPage() {
             )}
           </div>
 
-          {/* Chips de Filtro Rápido */}
+          {/* Chips de Filtro Rápido Baseados no Perfil */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <span className="text-xs text-zinc-400 font-medium mr-1">Filtros rápidos:</span>
             {preferredCity && (
@@ -184,20 +198,22 @@ export default function JobsPage() {
                     : "bg-surface-elevated text-zinc-300 border-surface-border hover:border-zinc-500"
                 }`}
               >
-                📍 {preferredCity}
+                📍 {preferredCityDisplay || preferredCity}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setQuickFilter("search", "Python")}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-all min-h-[32px] ${
-                f.search === "Python"
-                  ? "bg-brand-500 text-zinc-950 font-bold border-brand-400"
-                  : "bg-surface-elevated text-zinc-300 border-surface-border hover:border-zinc-500"
-              }`}
-            >
-              🐍 Python
-            </button>
+            {preferredTech && (
+              <button
+                type="button"
+                onClick={() => setQuickFilter("search", preferredTech)}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-all min-h-[32px] ${
+                  f.search === preferredTech
+                    ? "bg-brand-500 text-zinc-950 font-bold border-brand-400"
+                    : "bg-surface-elevated text-zinc-300 border-surface-border hover:border-zinc-500"
+                }`}
+              >
+                ⚡ {preferredTech}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setQuickFilter("work_mode", "remote")}

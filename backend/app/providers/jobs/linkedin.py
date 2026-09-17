@@ -38,9 +38,15 @@ class LinkedInJobSource(JobSource):
             if target not in regional_targets:
                 regional_targets.append(target)
 
-        # Monta buscas direcionadas: locais regionais prioritários com termos amplos de TI/Dev
+        # Monta buscas direcionadas: locais regionais prioritários com termos de TI/Dev alinhados ao perfil
         search_targets: list[dict] = []
-        regional_tech_terms = ["Desenvolvedor", "Estágio", "TI", "Software", "Python"]
+        user_roles = [r for r in (query.get("desired_roles") or []) if r]
+        regional_tech_terms = ["Desenvolvedor", "Estágio TI", "Software", "Python", "Backend"]
+        if user_roles:
+            for r in reversed(user_roles[:3]):
+                if r not in regional_tech_terms:
+                    regional_tech_terms.insert(0, r)
+
         for reg in regional_targets:
             for kw in regional_tech_terms:
                 search_targets.append({"keywords": kw, "location": reg, "geoId": None})
@@ -120,7 +126,11 @@ class LinkedInJobSource(JobSource):
                         if time_tag and time_tag.get("datetime"):
                             try:
                                 raw_date = time_tag["datetime"]
-                                pub_dt = datetime.fromisoformat(raw_date).replace(tzinfo=timezone.utc)
+                                pub_dt = datetime.fromisoformat(raw_date)
+                                if pub_dt.tzinfo is None:
+                                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+                                else:
+                                    pub_dt = pub_dt.astimezone(timezone.utc)
                                 date_status = "verified"
                             except Exception:
                                 pass

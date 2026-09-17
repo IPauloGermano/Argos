@@ -42,4 +42,7 @@ def submit_job_feedback(
 @router.get("/jobs/{job_id}")
 def fetch_job_feedback(job_id: int, db: Session = Depends(get_db)):
     user = _get_current_user(db)
-    return get_user_feedback(db, user.id, job_id) or {"feedback": None}
+    fb = get_user_feedback(db, user.id, job_id)
+    if not fb:
+        return {"feedback": None}
+    return {"feedback": fb, **fb}

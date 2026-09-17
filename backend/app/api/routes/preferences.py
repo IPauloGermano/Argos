@@ -36,8 +36,19 @@ def update_preferences(body: PreferencesUpdate, db: Session = Depends(get_db)):
     if body.email_digest_mode and body.email_digest_mode not in ("immediately", "hourly", "daily"):
         raise HTTPException(400, "email_digest_mode deve ser immediately|hourly|daily")
 
-    for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(prefs, k, v)
+    data = body.model_dump(exclude_unset=True)
+    if "min_salary" in data:
+        min_s = data.pop("min_salary")
+        if "minimum_salary" not in data and min_s is not None:
+            data["minimum_salary"] = min_s
+    if "max_salary" in data:
+        max_s = data.pop("max_salary")
+        if "maximum_salary" not in data and max_s is not None:
+            data["maximum_salary"] = max_s
+
+    for k, v in data.items():
+        if hasattr(prefs, k):
+            setattr(prefs, k, v)
 
     db.commit()
     db.refresh(prefs)

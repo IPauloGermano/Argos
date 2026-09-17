@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 import httpx
 from app.core.config import settings
 
@@ -44,7 +44,7 @@ class DiscordProvider:
             "color": color,
             "fields": fields,
             "footer": {"text": "Hermes Job Hunter • Agente 24/7"},
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
         payload = {

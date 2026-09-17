@@ -8,6 +8,7 @@ from sqlalchemy import select, func, and_
 from app.models.entities import (
     User, CandidateProfile, SearchPreferences, Job, JobMatch, Notification, CircuitBreakerRecord
 )
+from app.services.circuit_breaker import get_all_circuit_breakers
 from app.services.favorites import add_favorite, remove_favorite, list_favorites
 from app.services.feedback import record_feedback
 from app.services.reports import generate_weekly_report, format_weekly_report_telegram
@@ -339,8 +340,11 @@ class TelegramBotService:
             return {"action": "sendMessage", "chat_id": chat_id, "text": msg}
 
         elif cmd == "/fontes":
+            cb_map = {cb["source_name"]: cb["state"] for cb in get_all_circuit_breakers()}
             cbs = db.scalars(select(CircuitBreakerRecord)).all()
-            cb_map = {cb.source_name: cb.state for cb in cbs}
+            for cb in cbs:
+                if cb.source_name not in cb_map:
+                    cb_map[cb.source_name] = cb.state
             all_sources = ["linkedin", "gupy", "remotive", "greenhouse", "vagas", "ciee", "indeed"]
 
             lines = ["🌐 <b>Fontes de Oportunidades Conectadas:</b>\n"]

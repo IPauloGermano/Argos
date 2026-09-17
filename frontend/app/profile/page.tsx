@@ -96,8 +96,8 @@ export default function ProfilePage() {
         excluded_companies: Array.isArray(prefs.excluded_companies) ? prefs.excluded_companies : [],
         seniority_levels: prefs.seniority_levels || ["junior", "mid", "senior"],
         work_modes: prefs.work_modes || ["remote"],
-        locations: Array.isArray(prefs.locations) ? prefs.locations : ["Brasil"],
-        min_salary: prefs.min_salary ? Number(prefs.min_salary) : null,
+        minimum_salary: (prefs.minimum_salary ?? prefs.min_salary) ? Number(prefs.minimum_salary ?? prefs.min_salary) : null,
+        min_salary: (prefs.minimum_salary ?? prefs.min_salary) ? Number(prefs.minimum_salary ?? prefs.min_salary) : null,
         minimum_match_score: Number(prefs.minimum_match_score) || 70,
         search_frequency_minutes: Number(prefs.search_frequency_minutes) || 60,
       };

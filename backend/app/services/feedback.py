@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from app.models.entities import JobFeedback, Job, JobMatch
+from app.models.entities import JobFeedback, Job, JobMatch, CandidateProfile
 
 
 def record_feedback(
@@ -40,11 +40,20 @@ def record_feedback(
 
     # Ajuste controlado no score da vaga correspondente para este usuário
     # Não distorce excessivamente (limite de +/- 5%)
-    job_match = db.scalar(
-        select(JobMatch).where(
-            JobMatch.job_id == job_id
+    profile = db.scalar(select(CandidateProfile).where(CandidateProfile.user_id == user_id))
+    if profile:
+        job_match = db.scalar(
+            select(JobMatch).where(
+                JobMatch.job_id == job_id,
+                JobMatch.profile_id == profile.id
+            )
         )
-    )
+    else:
+        job_match = db.scalar(
+            select(JobMatch).where(
+                JobMatch.job_id == job_id
+            )
+        )
     if job_match:
         delta = 5 if is_positive else -10
         new_score = max(0, min(100, job_match.score + delta))

@@ -70,83 +70,83 @@ class IndeedJobSource(JobSource):
                         "start": start,
                     }
 
-                try:
-                    resp = await client.get(self.rss_url, params=params, headers=headers)
-                    self.pages_crawled += 1
-
-                    if resp.status_code == 429:
-                        self.circuit_breaker.record_failure("Indeed Rate Limit 429")
-                        break
-
-                    if resp.status_code != 200:
-                        self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
-                        break
-
-                    # Parse XML RSS Feed
                     try:
-                        root = ET.fromstring(resp.content)
-                        items = root.findall(".//item")
-                    except Exception:
-                        items = []
+                        resp = await client.get(self.rss_url, params=params, headers=headers)
+                        self.pages_crawled += 1
 
-                    if not items:
+                        if resp.status_code == 429:
+                            self.circuit_breaker.record_failure("Indeed Rate Limit 429")
+                            break
+
+                        if resp.status_code != 200:
+                            self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
+                            break
+
+                        # Parse XML RSS Feed
+                        try:
+                            root = ET.fromstring(resp.content)
+                            items = root.findall(".//item")
+                        except Exception:
+                            items = []
+
+                        if not items:
+                            break
+
+                        for item in items:
+                            title = item.findtext("title") or ""
+                            link = item.findtext("link") or ""
+                            desc = item.findtext("description") or ""
+                            source = item.findtext("source") or "Empresa Não Informada"
+                            pub_date_str = item.findtext("pubDate")
+
+                            # Separa empresa e título se vier formato "Título - Empresa"
+                            company = source
+                            if " - " in title and (source == "Empresa Não Informada" or not source):
+                                parts = title.rsplit(" - ", 1)
+                                title = parts[0]
+                                company = parts[1]
+
+                            pub_dt = None
+                            date_status = "unknown_date"
+                            if pub_date_str:
+                                try:
+                                    parsed = email.utils.parsedate_to_datetime(pub_date_str)
+                                    pub_dt = parsed.astimezone(timezone.utc)
+                                    date_status = "verified"
+                                except Exception:
+                                    pass
+
+                            work_mode = "remote" if "remoto" in title.lower() or "remoto" in desc.lower() else "onsite"
+
+                            # Extrai ID ou URL limpa
+                            clean_url = link.split("&")[0] if "&" in link else link
+
+                            nj = NormalizedJob(
+                                external_id=clean_url,
+                                source=self.name,
+                                url=clean_url,
+                                title=title.strip(),
+                                company=company.strip(),
+                                location="Brasil",
+                                work_mode=work_mode,
+                                seniority="",
+                                employment_type="clt",
+                                area="Tecnologia",
+                                description=desc.strip(),
+                                salary_min=None,
+                                salary_max=None,
+                                currency="BRL",
+                                published_at=pub_dt,
+                                date_status=date_status,
+                                raw_data={"rss_pubdate": pub_date_str}
+                            )
+                            jobs.append(nj)
+
+                        await asyncio.sleep(self.rate_limit_delay_seconds)
+
+                    except Exception as e:
+                        self.circuit_breaker.record_failure(str(e))
                         break
-
-                    for item in items:
-                        title = item.findtext("title") or ""
-                        link = item.findtext("link") or ""
-                        desc = item.findtext("description") or ""
-                        source = item.findtext("source") or "Empresa Não Informada"
-                        pub_date_str = item.findtext("pubDate")
-
-                        # Separa empresa e título se vier formato "Título - Empresa"
-                        company = source
-                        if " - " in title and (source == "Empresa Não Informada" or not source):
-                            parts = title.rsplit(" - ", 1)
-                            title = parts[0]
-                            company = parts[1]
-
-                        pub_dt = None
-                        date_status = "unknown_date"
-                        if pub_date_str:
-                            try:
-                                parsed = email.utils.parsedate_to_datetime(pub_date_str)
-                                pub_dt = parsed.astimezone(timezone.utc)
-                                date_status = "verified"
-                            except Exception:
-                                pass
-
-                        work_mode = "remote" if "remoto" in title.lower() or "remoto" in desc.lower() else "onsite"
-
-                        # Extrai ID ou URL limpa
-                        clean_url = link.split("&")[0] if "&" in link else link
-
-                        nj = NormalizedJob(
-                            external_id=clean_url,
-                            source=self.name,
-                            url=clean_url,
-                            title=title.strip(),
-                            company=company.strip(),
-                            location="Brasil",
-                            work_mode=work_mode,
-                            seniority="",
-                            employment_type="clt",
-                            area="Tecnologia",
-                            description=desc.strip(),
-                            salary_min=None,
-                            salary_max=None,
-                            currency="BRL",
-                            published_at=pub_dt,
-                            date_status=date_status,
-                            raw_data={"rss_pubdate": pub_date_str}
-                        )
-                        jobs.append(nj)
-
-                    await asyncio.sleep(self.rate_limit_delay_seconds)
-
-                except Exception as e:
-                    self.circuit_breaker.record_failure(str(e))
-                    break
 
         if jobs:
             self.circuit_breaker.record_success()

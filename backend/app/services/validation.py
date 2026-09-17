@@ -37,7 +37,10 @@ NON_TECH_CAREERS_RE = re.compile(
     r"operador(a)? de caixa|vigilante|porteiro|copeir[oa]|zelador(a)?|fisioterapeuta|"
     r"nutricionista|farmac[êe]utic[oa]|psic[óo]log[oa]|esteticista|manicure|mec[âa]nic[oa]|"
     r"almoxarife|estoquista|sinistros|constru[çc][ãa]o civil|pedreiro|auxiliar administrativo|"
-    r"assistente administrativo|secret[áa]ri[oa])\b",
+    r"assistente administrativo|secret[áa]ri[oa]|administra[çc][ãa]o|direito|advocacia|advogad[oa]|"
+    r"jur[íi]dic[oa]|cont[áa]bil|contabilidade|financeir[oa]|recursos humanos|\brh\b|psicologia|"
+    r"elevador(es)?|manuten[çc][ãa]o de elevadores|farm[áa]cia|log[íi]stica|pedagogia|marketing|"
+    r"publicidade|compras|centro de opera[çc][õo]es)\b",
     re.IGNORECASE
 )
 
@@ -46,8 +49,10 @@ TECH_REGEX = re.compile(
     r"full stack|fullstack|programador[a-z]*|engenharia de software|engenheir[oa] de software|"
     r"devops|cloud|api|apis|rest|sql|postgres|postgresql|sqlite|git|docker|linux|"
     r"computa[çc][ãa]o|sistemas de informa[çc][ãa]o|an[áa]lise e desenvolvimento|"
-    r"est[áa]gio em ti|estagi[áa]rio de ti|est[áa]gio de ti|est[áa]gio ti|est[áa]gio em desenvolvimento|"
-    r"est[áa]gio de software|est[áa]gio|estagio|qa|qa engineer|tester|cybersecurity|"
+    r"dados|data|ci[êe]ncia de dados|an[áa]lise de dados|analista de dados|engenharia de dados|"
+    r"est[áa]gio em (ti|tecnologia|software|desenvolvimento|programa[çc][ãa]o|sistemas|dados|computa[çc][ãa]o|python|backend|frontend|devops|cloud|qa)|"
+    r"est[áa]gio de (ti|software|desenvolvimento|dados)|est[áa]gio ti|estagi[áa]rio de ti|"
+    r"qa|qa engineer|tester|cybersecurity|"
     r"seguran[çc]a da informa[çc][ãa]o|intelig[êe]ncia artificial|machine learning|tech lead|"
     r"tecnologia da informa[çc][ãa]o|\bti\b|genai|ia generativa)\b",
     re.IGNORECASE
@@ -55,7 +60,9 @@ TECH_REGEX = re.compile(
 
 TECH_TITLE_REGEX = re.compile(
     r"\b(desenvolvedor[a-z]*|developer|software|python|django|backend|frontend|fullstack|"
-    r"programador[a-z]*|devops|cloud|dados|data|eng|engenheir[oa]|est[áa]gio|estagio|"
+    r"programador[a-z]*|devops|cloud|dados|data|eng|engenheir[oa]|"
+    r"est[áa]gio em (ti|software|desenvolvimento|sistemas|dados|computa[çc][ãa]o|python|backend|frontend|devops|cloud|qa)|"
+    r"est[áa]gio de (ti|software|desenvolvimento|dados)|est[áa]gio ti|"
     r"tech|\bti\b)\b",
     re.IGNORECASE
 )
@@ -124,16 +131,21 @@ def validate_job(job: dict, prefs: dict) -> tuple[bool, str]:
     # 6. Alinhamento de Carreira / Domínio de Tecnologia
     # Se o usuário busca cargos de tecnologia/software, rejeita profissões não relacionadas
     desired_roles = _norm_list(prefs.get("desired_roles"))
+    preferred_keywords = _norm_list(prefs.get("preferred_keywords"))
     is_tech_profile = not desired_roles or any(
-        any(tk in r for tk in ("desenvolvedor", "developer", "software", "backend", "python", "ti", "estágio"))
+        any(tk in r for tk in ("desenvolvedor", "developer", "software", "backend", "python", "ti", "estágio em ti", "estágio de software", "estágio em desenvolvimento"))
         for r in desired_roles
     )
     if is_tech_profile:
         if NON_TECH_CAREERS_RE.search(title) and not TECH_TITLE_REGEX.search(title):
             return False, f"unrelated_career_domain: {title}"
 
-        # Exige ao menos um sinal explícito de tecnologia ou match nos cargos desejados
-        has_tech_signal = bool(TECH_REGEX.search(blob)) or any(r in blob for r in desired_roles)
+        # Exige ao menos um sinal explícito de tecnologia ou match nos cargos/skills desejados
+        has_tech_signal = (
+            bool(TECH_REGEX.search(blob))
+            or any(r in blob for r in desired_roles)
+            or any(kw in blob for kw in preferred_keywords)
+        )
         if not has_tech_signal:
             return False, "no_tech_or_software_relevance"
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class UserOut(BaseModel):
@@ -57,7 +57,9 @@ class PreferencesOut(BaseModel):
     areas: list[str] = []
     work_modes: list[str] = []
     minimum_salary: Optional[float] = None
+    min_salary: Optional[float] = None
     maximum_salary: Optional[float] = None
+    max_salary: Optional[float] = None
     employment_types: list[str] = []
     preferred_companies: list[str] = []
     excluded_companies: list[str] = []
@@ -75,6 +77,18 @@ class PreferencesOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @model_validator(mode="after")
+    def populate_salary_aliases(self) -> PreferencesOut:
+        if self.min_salary is None and self.minimum_salary is not None:
+            self.min_salary = self.minimum_salary
+        elif self.minimum_salary is None and self.min_salary is not None:
+            self.minimum_salary = self.min_salary
+        if self.max_salary is None and self.maximum_salary is not None:
+            self.max_salary = self.maximum_salary
+        elif self.maximum_salary is None and self.max_salary is not None:
+            self.maximum_salary = self.max_salary
+        return self
+
 
 class PreferencesUpdate(BaseModel):
     desired_roles: Optional[list[str]] = None
@@ -88,7 +102,9 @@ class PreferencesUpdate(BaseModel):
     areas: Optional[list[str]] = None
     work_modes: Optional[list[str]] = None
     minimum_salary: Optional[float] = None
+    min_salary: Optional[float] = None
     maximum_salary: Optional[float] = None
+    max_salary: Optional[float] = None
     employment_types: Optional[list[str]] = None
     preferred_companies: Optional[list[str]] = None
     excluded_companies: Optional[list[str]] = None

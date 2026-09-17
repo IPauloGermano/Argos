@@ -46,7 +46,12 @@ class CIEEJobSource(JobSource):
                         self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
                         break
 
-                    payload = resp.json()
+                    try:
+                        payload = resp.json()
+                    except Exception:
+                        self.circuit_breaker.record_failure("Invalid JSON from CIEE")
+                        break
+
                     items = payload.get("conteudo") or payload.get("itens") or []
                     if not items:
                         break
@@ -74,6 +79,20 @@ class CIEEJobSource(JobSource):
                         elif "trainee" in tipo_vaga:
                             emp_type = "trainee"
 
+                        pub_dt = None
+                        date_status = "unknown_date"
+                        raw_date = it.get("dataPublicacao") or it.get("dataAbertura") or it.get("dataCriacao") or it.get("data")
+                        if raw_date:
+                            try:
+                                pub_dt = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
+                                if pub_dt.tzinfo is None:
+                                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+                                else:
+                                    pub_dt = pub_dt.astimezone(timezone.utc)
+                                date_status = "verified"
+                            except Exception:
+                                pass
+
                         nj = NormalizedJob(
                             external_id=ext_id,
                             source=self.name,
@@ -89,8 +108,8 @@ class CIEEJobSource(JobSource):
                             salary_min=salary_min,
                             salary_max=salary_min,
                             currency="BRL",
-                            published_at=datetime.now(timezone.utc),
-                            date_status="verified",
+                            published_at=pub_dt,
+                            date_status=date_status,
                             raw_data=it
                         )
                         jobs.append(nj)

@@ -400,7 +400,7 @@ def run_search_sync() -> dict:
                 seniority_score=ranking_result.get("seniority_score", 0),
                 location_score=ranking_result.get("location_score", 0),
                 role_score=ranking_result.get("role_score", 0),
-                salary_score=ranking_result.get("recency_score", 0),
+                salary_score=ranking_result.get("salary_score", ranking_result.get("recency_score", 0)),
                 reasoning=reasoning[:8]
             ))
             db.commit()
