@@ -3,15 +3,33 @@ import React, { useState, useEffect } from "react";
 import { api } from "../lib/api";
 
 function formatTimestamp(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "Nenhuma ainda";
   try {
     const d = new Date(iso);
-    return (
-      d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) +
-      " (" +
-      d.toLocaleDateString("pt-BR") +
-      ")"
-    );
+    if (isNaN(d.getTime())) return "—";
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.round(diffMs / 60000);
+
+    const timeStr = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const dateStr = d.toLocaleDateString("pt-BR");
+
+    // Passado (ex: última verificação)
+    if (diffMs >= 0) {
+      if (diffMin < 1) return `agora há pouco (${timeStr})`;
+      if (diffMin < 60) return `há ${diffMin} min (${timeStr})`;
+      const hours = Math.floor(diffMin / 60);
+      if (hours < 24) return `há ${hours}h (${timeStr})`;
+      return `${timeStr} (${dateStr})`;
+    }
+
+    // Futuro (ex: próxima agendada)
+    const futureMin = Math.abs(diffMin);
+    if (futureMin < 1) return `em instantes (${timeStr})`;
+    if (futureMin < 60) return `em ${futureMin} min (${timeStr})`;
+    const hours = Math.floor(futureMin / 60);
+    if (hours < 24) return `em ${hours}h (${timeStr})`;
+    return `${timeStr} (${dateStr})`;
   } catch {
     return iso;
   }
@@ -43,6 +61,25 @@ export default function AgentControl({
     return () => clearInterval(timer);
   }, [busy]);
 
+  // Polling automático caso haja busca em execução em background
+  useEffect(() => {
+    if (!status?.is_executing_cycle) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const s = await api.get("/api/agent/status");
+        if (s && !s.is_executing_cycle) {
+          clearInterval(interval);
+          refresh();
+        }
+      } catch {
+        // ignora erro transitório
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [status?.is_executing_cycle, refresh]);
+
   const handleRunSearch = async () => {
     setBusy(true);
     setResultMsg("");
@@ -50,10 +87,25 @@ export default function AgentControl({
 
     try {
       await api.post("/api/agent/run");
+
+      // Polling até a busca concluir em background
+      let finished = false;
+      const startTime = Date.now();
+      const maxWait = 90000; // até 90s
+
+      while (!finished && Date.now() - startTime < maxWait) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const current = await api.get("/api/agent/status").catch(() => null);
+        if (current && !current.is_executing_cycle) {
+          finished = true;
+          break;
+        }
+      }
+
       await refresh();
 
-      const lastStats = status?.last_stats;
-      const newCount = lastStats?.new || 0;
+      const freshStatus = await api.get("/api/agent/status").catch(() => null);
+      const newCount = freshStatus?.last_stats?.new || 0;
 
       if (newCount > 0) {
         setResultMsg(`✨ Varredura concluída! ${newCount} nova(s) vaga(s) encontrada(s) e adicionada(s) ao seu radar.`);
@@ -110,9 +162,15 @@ export default function AgentControl({
                 </span>
               )}
             </div>
-            <p className="text-xs text-zinc-400 mt-1">
-              O assistente procura novas vagas a cada {status?.frequency_minutes ? Math.round(status.frequency_minutes / 60) || 1 : 1} hora(s).
-            </p>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-400 mt-1">
+              <span>
+                Varredura a cada {status?.frequency_minutes ? Math.round(status.frequency_minutes / 60) || 1 : 1}h
+              </span>
+              <span aria-hidden="true" className="text-zinc-600">·</span>
+              <span>
+                Última verificação: <strong className="text-zinc-200 font-medium">{formatTimestamp(status?.last_search)}</strong>
+              </span>
+            </div>
           </div>
         </div>
 

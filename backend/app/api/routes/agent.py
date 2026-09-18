@@ -24,9 +24,50 @@ def _redis_get(key: str):
         return None
 
 
-@router.get("/status")
-def agent_status(db: Session = Depends(get_db)):
+def _resolve_agent_monitoring(db: Session) -> dict:
     sched_status = get_scheduler_status()
+    is_paused = sched_status.get("is_paused", False)
+    try:
+        r = get_redis_client()
+        if r.get("hermes:agent:paused") == "1":
+            is_paused = True
+    except Exception:
+        pass
+
+    is_executing = sched_status.get("is_executing_cycle", False)
+    try:
+        r = get_redis_client()
+        if r.get("hermes:agent:is_running") == "1":
+            is_executing = True
+    except Exception:
+        pass
+
+    # Checa também se no banco há SearchRun recente (< 15 min) com status 'running'
+    if not is_executing:
+        active_run = db.scalar(
+            select(SearchRun)
+            .where(SearchRun.status == "running")
+            .where(SearchRun.started_at > datetime.now(timezone.utc) - timedelta(minutes=15))
+            .limit(1)
+        )
+        if active_run:
+            is_executing = True
+
+    # 1. Recupera timestamp da última verificação (last_search)
+    last_search = _redis_get("hermes:agent:last_run")
+    last_run_db = None
+
+    if not last_search:
+        last_run_db = db.scalar(select(SearchRun).order_by(SearchRun.id.desc()).limit(1))
+        if last_run_db and (last_run_db.finished_at or last_run_db.started_at):
+            dt = last_run_db.finished_at or last_run_db.started_at
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            last_search = dt.isoformat()
+        elif sched_status.get("last_search"):
+            last_search = sched_status["last_search"]
+
+    # 2. Recupera estatísticas da última verificação (last_stats)
     last_stats = {}
     raw_stats = _redis_get("hermes:agent:last_stats")
     if raw_stats:
@@ -35,9 +76,9 @@ def agent_status(db: Session = Depends(get_db)):
         except Exception:
             pass
 
-    # Se não houver no Redis, busca a última execução do SearchRun no banco
     if not last_stats:
-        last_run_db = db.scalar(select(SearchRun).order_by(SearchRun.id.desc()).limit(1))
+        if last_run_db is None:
+            last_run_db = db.scalar(select(SearchRun).order_by(SearchRun.id.desc()).limit(1))
         if last_run_db:
             last_stats = {
                 "run_id": last_run_db.run_id,
@@ -48,14 +89,54 @@ def agent_status(db: Session = Depends(get_db)):
                 "new": last_run_db.new_count,
                 "updated": last_run_db.updated_count,
                 "notified": last_run_db.notified_count,
-                "errors": last_run_db.errors,
-                "pages_crawled": last_run_db.pages_crawled
+                "errors": last_run_db.errors or [],
+                "pages_crawled": last_run_db.pages_crawled,
+                "source_stats": last_run_db.source_stats or {},
+                "discard_reasons": last_run_db.discard_reasons or {},
             }
-            if not sched_status["last_search"]:
-                sched_status["last_search"] = last_run_db.started_at.isoformat()
 
     prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
     freq = prefs.search_frequency_minutes if prefs else settings.DEFAULT_SEARCH_FREQUENCY_MINUTES
+
+    # 3. Calcula next_search com precisão
+    next_search = None
+    running = not is_paused
+    if running:
+        now_utc = datetime.now(timezone.utc)
+        if is_executing:
+            next_search = (now_utc + timedelta(minutes=freq)).isoformat()
+        elif last_search:
+            try:
+                dt_str = last_search.replace("Z", "+00:00")
+                last_dt = datetime.fromisoformat(dt_str)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                expected_next = last_dt + timedelta(minutes=freq)
+                if expected_next > now_utc:
+                    next_search = expected_next.isoformat()
+                else:
+                    next_search = now_utc.isoformat()
+            except Exception:
+                next_search = sched_status.get("next_search")
+        else:
+            next_search = sched_status.get("next_search") or (now_utc + timedelta(minutes=freq)).isoformat()
+
+    return {
+        "running": running,
+        "is_paused": is_paused,
+        "is_executing_cycle": is_executing,
+        "last_search": last_search,
+        "next_search": next_search,
+        "frequency_minutes": freq,
+        "last_stats": last_stats,
+        "prefs": prefs,
+    }
+
+
+@router.get("/status")
+def agent_status(db: Session = Depends(get_db)):
+    info = _resolve_agent_monitoring(db)
+    prefs = info["prefs"]
     enabled_sources = (prefs.enabled_sources if prefs and prefs.enabled_sources else None) or [
         s.strip() for s in settings.JOB_SOURCES.split(",") if s.strip()
     ]
@@ -63,23 +144,15 @@ def agent_status(db: Session = Depends(get_db)):
     total_jobs = db.scalar(select(func.count(Job.id))) or 0
     active_jobs = db.scalar(select(func.count(Job.id)).where(Job.status == "active")) or 0
 
-    is_executing = sched_status["is_executing_cycle"]
-    try:
-        r = get_redis_client()
-        if r.get("hermes:agent:is_running") == "1":
-            is_executing = True
-    except Exception:
-        pass
-
     return {
-        "running": sched_status["running"],
-        "is_paused": sched_status["is_paused"],
-        "is_executing_cycle": is_executing,
-        "last_search": sched_status["last_search"],
-        "next_search": sched_status["next_search"],
-        "frequency_minutes": freq,
+        "running": info["running"],
+        "is_paused": info["is_paused"],
+        "is_executing_cycle": info["is_executing_cycle"],
+        "last_search": info["last_search"],
+        "next_search": info["next_search"],
+        "frequency_minutes": info["frequency_minutes"],
         "sources": enabled_sources,
-        "last_stats": last_stats,
+        "last_stats": info["last_stats"],
         "jobs_total": total_jobs,
         "jobs_active": active_jobs,
         "circuit_breakers": get_all_circuit_breakers()
@@ -199,9 +272,7 @@ def dashboard(db: Session = Depends(get_db)):
     best = db.scalar(select(func.max(JobMatch.score))) or 0
     sent = db.scalar(select(func.count(Notification.id)).where(Notification.status == "sent")) or 0
     
-    sched = get_scheduler_status()
-    prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
-    freq = prefs.search_frequency_minutes if prefs else 60
+    info = _resolve_agent_monitoring(db)
 
     recent = db.execute(
         select(Job, JobMatch).outerjoin(JobMatch, JobMatch.job_id == Job.id)
@@ -213,10 +284,10 @@ def dashboard(db: Session = Depends(get_db)):
         "relevant": relevant,
         "best_score": best,
         "notifications_sent": sent,
-        "last_search": sched["last_search"],
-        "next_search": sched["next_search"],
-        "running": sched["running"],
-        "frequency_minutes": freq,
+        "last_search": info["last_search"],
+        "next_search": info["next_search"],
+        "running": info["running"],
+        "frequency_minutes": info["frequency_minutes"],
         "recent": [
             {
                 "id": j.id,

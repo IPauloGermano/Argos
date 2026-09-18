@@ -531,7 +531,7 @@ def run_search_sync() -> dict:
         try:
             from app.core.database import get_redis_client
             r = get_redis_client()
-            r.set("hermes:agent:last_run", started.isoformat())
+            r.set("hermes:agent:last_run", finished.isoformat())
             r.set("hermes:agent:last_stats", __import__("json").dumps(stats))
         except Exception:
             pass

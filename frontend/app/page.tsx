@@ -80,9 +80,25 @@ export default function Dashboard() {
                     Seu Assistente Pessoal
                   </span>
                   <span className="text-zinc-600" aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true"></span>
-                    Monitoramento ativo
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+                    status?.is_executing_cycle
+                      ? "text-brand-400"
+                      : status?.running === false
+                      ? "text-amber-400"
+                      : "text-emerald-400"
+                  }`}>
+                    <span className={`h-2 w-2 rounded-full ${
+                      status?.is_executing_cycle
+                        ? "bg-brand-500 animate-pulse"
+                        : status?.running === false
+                        ? "bg-amber-500"
+                        : "bg-emerald-500"
+                    }`} aria-hidden="true"></span>
+                    {status?.is_executing_cycle
+                      ? "Buscando vagas agora..."
+                      : status?.running === false
+                      ? "Monitoramento pausado"
+                      : "Monitoramento ativo"}
                   </span>
                 </div>
 
