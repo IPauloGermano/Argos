@@ -84,3 +84,52 @@ def purge_expired_jobs(db: Session, max_age_days: Optional[int] = 60) -> int:
         db.rollback()
         log_event("PURGE_EXPIRED_JOBS_ERROR", error=str(e), max_age_days=max_age_days)
         return 0
+
+
+def purge_example_jobs(db: Session) -> int:
+    """
+    Remove definitivamente vagas de teste, mock ou exemplo do sistema.
+    Identifica vagas de origem 'mock', domínios sintéticos (example.com),
+    empresas fictícias (Empresa Alpha, Vagas Testes) ou vagas marcadas com [TESTE].
+    """
+    try:
+        example_filter = or_(
+            Job.source == "mock",
+            Job.source.ilike("%mock%"),
+            Job.url.ilike("%example.com%"),
+            Job.url.ilike("%-demo.gupy.io%"),
+            Job.company.ilike("%Empresa Alpha%"),
+            Job.company.ilike("%VAGAS TESTES%"),
+            Job.title.ilike("%[teste]%"),
+            Job.title.ilike("%[mock]%"),
+        )
+
+        example_ids = list(db.scalars(select(Job.id).where(example_filter)).all())
+        if not example_ids:
+            return 0
+
+        # Remoção segura em cascata
+        db.execute(delete(JobMatch).where(JobMatch.job_id.in_(example_ids)))
+        db.execute(delete(JobChangelog).where(JobChangelog.job_id.in_(example_ids)))
+        db.execute(delete(Notification).where(Notification.job_id.in_(example_ids)))
+        db.execute(delete(JobFeedback).where(JobFeedback.job_id.in_(example_ids)))
+        db.execute(delete(UserFavorite).where(UserFavorite.job_id.in_(example_ids)))
+        db.execute(delete(Job).where(Job.id.in_(example_ids)))
+
+        # Limpeza de IDs órfãos em excluded_jobs
+        prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
+        if prefs and prefs.excluded_jobs:
+            example_set = set(example_ids)
+            cleaned = [jid for jid in prefs.excluded_jobs if jid not in example_set]
+            if len(cleaned) != len(prefs.excluded_jobs):
+                prefs.excluded_jobs = cleaned
+
+        db.commit()
+        log_event("PURGED_EXAMPLE_JOBS", count=len(example_ids), ids=example_ids)
+        return len(example_ids)
+
+    except Exception as e:
+        db.rollback()
+        log_event("PURGE_EXAMPLE_JOBS_ERROR", error=str(e))
+        return 0
+

@@ -283,12 +283,15 @@ def run_search_sync() -> dict:
         p_dict = _profile_dict(profile)
         prefs_dict = _prefs_dict(prefs)
 
-        # 0. Limpeza automática de vagas expiradas (> max_job_age_days)
+        # 0. Limpeza automática de vagas expiradas (> max_job_age_days) e vagas de exemplo/teste
         try:
-            from app.services.cleanup import purge_expired_jobs
+            from app.services.cleanup import purge_expired_jobs, purge_example_jobs
             purged = purge_expired_jobs(db, max_age_days=prefs.max_job_age_days or 60)
             if purged > 0:
                 stats["purged_expired"] = purged
+            purged_examples = purge_example_jobs(db)
+            if purged_examples > 0:
+                stats["purged_examples"] = purged_examples
         except Exception as e:
             log_event("PURGE_EXPIRED_JOBS_ERROR", error=str(e))
 

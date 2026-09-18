@@ -108,7 +108,19 @@ def validate_job(job: dict, prefs: dict) -> tuple[bool, str]:
         # Rejeita oportunidade anônima sem empresa identificada
         return False, "missing_company_name"
 
-    # 2. Detecção de Spam / Golpes
+    # 2. Detecção de Vagas de Exemplo / Teste / Mock
+    if (
+        job.get("source") == "mock"
+        or "/jobs/mock" in url
+        or "-demo.gupy.io" in url
+        or "[teste]" in title.lower()
+        or "[mock]" in title.lower()
+        or "empresa alpha" in company.lower()
+        or "vagas testes" in company.lower()
+    ):
+        return False, "example_or_mock_job"
+
+    # 3. Detecção de Spam / Golpes
     is_spam, spam_reason = is_spam_or_scam(title, desc)
     if is_spam:
         return False, spam_reason

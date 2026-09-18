@@ -19,7 +19,7 @@ from app.models.entities import (
     CandidateProfile,
 )
 import app.main as mainmod
-from app.services.cleanup import purge_expired_jobs
+from app.services.cleanup import purge_expired_jobs, purge_example_jobs
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -267,3 +267,45 @@ def test_cleanup_expired_jobs_api_endpoint():
 
     with TestingSession() as s:
         assert s.scalar(select(Job).where(Job.id == jid)) is None
+
+
+def test_purge_example_jobs_removes_mock_and_demo():
+    with TestingSession() as s:
+        # Vaga mock
+        j1 = Job(
+            title="Backend Developer",
+            company="Empresa Alpha 1",
+            source="mock",
+            url="https://example.com/jobs/mock-1",
+            content_hash="mock-hash-1",
+            status="active"
+        )
+        # Vaga de teste com [TESTE] no título
+        j2 = Job(
+            title="[TESTE] Desenvolvedor Python",
+            company="Vagas Testes",
+            source="gupy",
+            url="https://bondy-demo.gupy.io/job/123",
+            content_hash="demo-hash-2",
+            status="active"
+        )
+        # Vaga real válida que NÃO deve ser apagada
+        j3 = Job(
+            title="Desenvolvedor Python Júnior",
+            company="Empresa Real Tech",
+            source="linkedin",
+            url="https://linkedin.com/jobs/view/999",
+            content_hash="real-hash-3",
+            status="active"
+        )
+        s.add_all([j1, j2, j3])
+        s.commit()
+        j1_id, j2_id, j3_id = j1.id, j2.id, j3.id
+
+    with TestingSession() as s:
+        purged = purge_example_jobs(s)
+        assert purged == 2
+        assert s.scalar(select(Job).where(Job.id == j1_id)) is None
+        assert s.scalar(select(Job).where(Job.id == j2_id)) is None
+        assert s.scalar(select(Job).where(Job.id == j3_id)) is not None
+
