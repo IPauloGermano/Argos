@@ -162,40 +162,51 @@ async def _collect_from_sources(query: dict, enabled_sources: list[str] = None) 
     async def _fetch_source(src):
         src_pages = 0
         src_found = 0
-        for attempt in range(2):
-            try:
-                timeout_limit = min(src.timeout, 20.0) + 2
-                found = await asyncio.wait_for(src.search(query), timeout=timeout_limit)
-                items = found or []
-                src_pages = getattr(src, "pages_crawled", 1)
-                src_found = len(items)
-                return {
-                    "name": src.name,
-                    "items": items,
-                    "error": None,
-                    "stats": {
-                        "pages": src_pages,
-                        "found": src_found,
-                        "status": "ok"
-                    },
-                    "pages": src_pages
-                }
-            except Exception as e:
-                err_msg = f"{src.name}: {type(e).__name__} ({str(e)[:100]})"
-                if attempt == 1:
-                    return {
-                        "name": src.name,
-                        "items": [],
-                        "error": err_msg,
-                        "stats": {
-                            "pages": getattr(src, "pages_crawled", 0),
-                            "found": 0,
-                            "status": "error",
-                            "error": err_msg
-                        },
-                        "pages": getattr(src, "pages_crawled", 0)
-                    }
-                await asyncio.sleep(0.5)
+        timeout_limit = min(src.timeout, 8.0)
+        try:
+            found = await asyncio.wait_for(src.search(query), timeout=timeout_limit)
+            items = found or []
+            src_pages = getattr(src, "pages_crawled", 1)
+            src_found = len(items)
+            return {
+                "name": src.name,
+                "items": items,
+                "error": None,
+                "stats": {
+                    "pages": src_pages,
+                    "found": src_found,
+                    "status": "ok"
+                },
+                "pages": src_pages
+            }
+        except asyncio.TimeoutError:
+            err_msg = f"{src.name}: Timeout ({timeout_limit}s excedido)"
+            return {
+                "name": src.name,
+                "items": [],
+                "error": err_msg,
+                "stats": {
+                    "pages": getattr(src, "pages_crawled", 0),
+                    "found": 0,
+                    "status": "timeout",
+                    "error": err_msg
+                },
+                "pages": getattr(src, "pages_crawled", 0)
+            }
+        except Exception as e:
+            err_msg = f"{src.name}: {type(e).__name__} ({str(e)[:100]})"
+            return {
+                "name": src.name,
+                "items": [],
+                "error": err_msg,
+                "stats": {
+                    "pages": getattr(src, "pages_crawled", 0),
+                    "found": 0,
+                    "status": "error",
+                    "error": err_msg
+                },
+                "pages": getattr(src, "pages_crawled", 0)
+            }
 
     # Coleta todas as fontes em paralelo com asyncio.gather
     results = await asyncio.gather(*[_fetch_source(src) for src in sources], return_exceptions=True)

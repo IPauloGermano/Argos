@@ -26,16 +26,22 @@ class VagasComJobSource(JobSource):
         slug = urllib.parse.quote(keyword.lower().replace(" ", "-"))
 
         raw_locations = query.get("locations") or []
+        foreign_keywords = (
+            "brasil", "brazil", "remoto", "remote", "chile", "paraguai", "paraguay",
+            "portugal", "ireland", "united kingdom", "dublin", "london", "santiago",
+            "united states", "usa", "eua"
+        )
         urls_to_crawl = [f"{self.base_url}/vagas-de-{slug}?pagina=1"]
         for loc in raw_locations:
             clean_loc = loc.strip()
             lower = clean_loc.lower()
-            if not clean_loc or lower in ("remoto", "remote", "brasil", "brazil"):
+            if not clean_loc or any(k in lower for k in foreign_keywords):
                 continue
             city_slug = urllib.parse.quote(clean_loc.split(",")[0].split("-")[0].strip().lower().replace(" ", "-"))
             if len(city_slug) >= 3:
                 urls_to_crawl.append(f"{self.base_url}/vagas-em-{city_slug}/{slug}")
-                urls_to_crawl.append(f"{self.base_url}/vagas-em-{city_slug}/ti")
+                break
+        urls_to_crawl = urls_to_crawl[:2]
 
         jobs: list[NormalizedJob] = []
         known_urls = query.get("known_urls") or set()
@@ -43,10 +49,10 @@ class VagasComJobSource(JobSource):
         seen_urls: set[str] = set()
         self.pages_crawled = 0
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=min(self.timeout, 6.0)) as client:
             headers = self.get_default_headers()
 
-            for url in urls_to_crawl[:self.max_pages]:
+            for url in urls_to_crawl:
                 try:
                     resp = await client.get(url, headers=headers)
                     self.pages_crawled += 1

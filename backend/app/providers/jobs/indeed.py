@@ -52,17 +52,19 @@ class IndeedJobSource(JobSource):
             if clean_loc and clean_loc.lower() not in ("remoto", "remote"):
                 if clean_loc not in target_locations:
                     target_locations.append(clean_loc)
-        if not target_locations:
-            target_locations = ["Brasil"]
+        target_locations = [target_locations[0]] if target_locations else ["Brasil"]
 
         jobs: list[NormalizedJob] = []
         self.pages_crawled = 0
+        rss_dead = False
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=min(self.timeout, 5.0)) as client:
             headers = self.get_default_headers()
 
             for target_loc in target_locations:
-                for page in range(min(self.max_pages, 2)):
+                if rss_dead:
+                    break
+                for page in range(min(self.max_pages, 1)):
                     start = page * 10
                     params = {
                         "q": keywords,
@@ -74,12 +76,12 @@ class IndeedJobSource(JobSource):
                         resp = await client.get(self.rss_url, params=params, headers=headers)
                         self.pages_crawled += 1
 
-                        if resp.status_code == 429:
-                            self.circuit_breaker.record_failure("Indeed Rate Limit 429")
+                        if resp.status_code in (403, 404, 410, 429):
+                            rss_dead = True
                             break
 
                         if resp.status_code != 200:
-                            self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
+                            rss_dead = True
                             break
 
                         # Parse XML RSS Feed
@@ -144,23 +146,24 @@ class IndeedJobSource(JobSource):
                             )
                             jobs.append(nj)
 
-                        await asyncio.sleep(self.rate_limit_delay_seconds)
-
-                    except Exception as e:
-                        self.circuit_breaker.record_failure(str(e))
+                    except Exception:
+                        rss_dead = True
                         break
 
         if jobs:
             self.circuit_breaker.record_success()
             self.last_status = "success"
-        elif self.pages_crawled > 0:
-            # RSS morto (404) ou vazio: tenta fallback via browser renderizado.
-            jobs = await self._search_browser(keywords)
-            if jobs:
-                self.circuit_breaker.record_success()
-                self.last_status = "success-browser"
-            else:
-                self.circuit_breaker.record_success()
+        else:
+            # Tenta fallback via browser com limite estrito de 4s
+            try:
+                browser_jobs = await asyncio.wait_for(self._search_browser(keywords), timeout=4.0)
+                if browser_jobs:
+                    jobs.extend(browser_jobs)
+                    self.circuit_breaker.record_success()
+                    self.last_status = "success-browser"
+                else:
+                    self.last_status = "empty"
+            except Exception:
                 self.last_status = "empty"
 
         return jobs

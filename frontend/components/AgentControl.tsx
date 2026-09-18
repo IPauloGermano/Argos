@@ -75,7 +75,7 @@ export default function AgentControl({
       } catch {
         // ignora erro transitório
       }
-    }, 2000);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [status?.is_executing_cycle, refresh]);
@@ -88,18 +88,20 @@ export default function AgentControl({
     try {
       await api.post("/api/agent/run");
 
-      // Polling até a busca concluir em background
+      // Polling ágil (a cada 800ms) até a busca concluir em background
       let finished = false;
       const startTime = Date.now();
-      const maxWait = 90000; // até 90s
+      const maxWait = 45000; // até 45s máximo
+
+      await new Promise((r) => setTimeout(r, 800));
 
       while (!finished && Date.now() - startTime < maxWait) {
-        await new Promise((r) => setTimeout(r, 2000));
         const current = await api.get("/api/agent/status").catch(() => null);
         if (current && !current.is_executing_cycle) {
           finished = true;
           break;
         }
+        await new Promise((r) => setTimeout(r, 800));
       }
 
       await refresh();

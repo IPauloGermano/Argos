@@ -120,35 +120,37 @@ class GupyJobSource(JobSource):
 
         roles = query.get("desired_roles") or ["Desenvolvedor Python"]
         terms_to_search = []
-        for r in roles[:3]:
+        for r in roles[:2]:
             if r and r not in terms_to_search:
                 terms_to_search.append(r)
 
-        # Garante busca por Python, Backend e Estágio TI
-        for tech_term in ["Python", "Desenvolvedor Backend", "Estágio TI"]:
-            if tech_term not in terms_to_search and len(terms_to_search) < 5:
+        # Garante busca por Python e Backend
+        for tech_term in ["Python", "Desenvolvedor Backend"]:
+            if tech_term not in terms_to_search and len(terms_to_search) < 3:
                 terms_to_search.append(tech_term)
 
-        # Adiciona buscas regionais dinâmicas SEMPRE combinadas com tecnologia/desenvolvimento
+        # Adiciona no máximo 1 busca regional brasileira relevante (ignora países e cidades do exterior)
         raw_locations = query.get("locations") or []
+        foreign_keywords = (
+            "brasil", "brazil", "remoto", "remote", "chile", "paraguai", "paraguay",
+            "portugal", "ireland", "united kingdom", "dublin", "london", "santiago",
+            "united states", "usa", "eua"
+        )
         for loc in raw_locations:
             clean_loc = loc.strip()
             lower = clean_loc.lower()
-            if not clean_loc or lower in ("brasil", "brazil", "remoto", "remote"):
+            if not clean_loc or any(k in lower for k in foreign_keywords):
                 continue
             city_name = clean_loc.split(",")[0].split("-")[0].strip()
             if len(city_name) >= 3:
-                term_ti = f"TI {city_name}"
-                term_dev = f"Desenvolvedor {city_name}"
-                if term_ti not in terms_to_search:
-                    terms_to_search.append(term_ti)
-                if term_dev not in terms_to_search:
-                    terms_to_search.append(term_dev)
+                terms_to_search.append(f"Desenvolvedor {city_name}")
+                break
 
         unique_terms = []
         for t in terms_to_search:
             if t not in unique_terms:
                 unique_terms.append(t)
+        unique_terms = unique_terms[:4]
 
         known_urls = query.get("known_urls") or set()
         known_ids = query.get("known_ids") or set()
@@ -157,64 +159,50 @@ class GupyJobSource(JobSource):
         seen_ids: set[str] = set()
         self.pages_crawled = 0
 
-        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=min(self.timeout, 8.0), follow_redirects=True) as client:
             headers = self.get_default_headers()
             headers["Referer"] = "https://portal.gupy.io/"
 
-            for term in unique_terms:
+            async def _fetch_term(term: str) -> list[NormalizedJob]:
                 slug = urllib.parse.quote(term.strip(), safe="")
-                max_pages_for_term = min(self.max_pages, 2)
+                url = f"{self.search_base}/term={slug}"
+                term_jobs: list[NormalizedJob] = []
+                try:
+                    resp = await client.get(url, headers=headers)
+                    self.pages_crawled += 1
+                    if resp.status_code == 429:
+                        self.circuit_breaker.record_failure("Rate limit 429")
+                        return []
+                    if resp.status_code != 200:
+                        self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
+                        return []
 
-                for page in range(1, max_pages_for_term + 1):
-                    if page == 1:
-                        url = f"{self.search_base}/term={slug}"
-                    else:
-                        url = f"{self.search_base}/term={slug}&page={page}"
+                    items, total = self._parse_page(resp.text)
+                    if not items:
+                        return []
 
-                    try:
-                        resp = await client.get(url, headers=headers)
-                        self.pages_crawled += 1
+                    for item in items:
+                        ext_id = str(item.get("id") or "")
+                        job_url = str(item.get("jobUrl") or f"https://portal.gupy.io/job/{ext_id}")
+                        if ext_id in known_ids or job_url in known_urls:
+                            continue
 
-                        if resp.status_code == 429:
-                            self.circuit_breaker.record_failure("Rate limit 429")
-                            break
+                        try:
+                            nj = self._normalize(item)
+                            term_jobs.append(nj)
+                        except Exception:
+                            continue
+                except Exception as e:
+                    self.circuit_breaker.record_failure(str(e))
+                return term_jobs
 
-                        if resp.status_code != 200:
-                            self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
-                            break
-
-                        items, total = self._parse_page(resp.text)
-                        if not items:
-                            break
-
-                        new_on_page = 0
-                        for item in items:
-                            ext_id = str(item.get("id") or "")
-                            job_url = str(item.get("jobUrl") or f"https://portal.gupy.io/job/{ext_id}")
-                            if ext_id in known_ids or job_url in known_urls:
-                                continue
-
-                            try:
-                                nj = self._normalize(item)
-                                if nj.external_id not in seen_ids:
-                                    seen_ids.add(nj.external_id)
-                                    jobs.append(nj)
-                                    new_on_page += 1
-                            except Exception:
-                                continue
-
-                        # Se a primeira página inteira já foi coletada anteriormente, não gasta requisição com página 2
-                        if new_on_page == 0:
-                            break
-
-                        if self.pages_crawled * PAGE_SIZE >= total:
-                            break
-
-                        await asyncio.sleep(self.rate_limit_delay_seconds)
-
-                    except Exception as e:
-                        self.circuit_breaker.record_failure(str(e))
-                        break
+            results = await asyncio.gather(*[_fetch_term(t) for t in unique_terms], return_exceptions=True)
+            for res in results:
+                if isinstance(res, list):
+                    for nj in res:
+                        if nj.external_id not in seen_ids:
+                            seen_ids.add(nj.external_id)
+                            jobs.append(nj)
 
         if jobs:
             self.circuit_breaker.record_success()
