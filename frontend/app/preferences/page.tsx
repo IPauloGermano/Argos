@@ -294,17 +294,6 @@ export default function PreferencesPage() {
           </div>
         </div>
       </div>
-
-      <div className="flex justify-end pt-2">
-        <button
-          type="button"
-          className="btn-primary text-xs py-2.5 px-6 min-h-[42px]"
-          disabled={saving}
-          onClick={save}
-        >
-          {saving ? "Salvando..." : "Salvar Alterações"}
-        </button>
-      </div>
     </div>
   );
 }

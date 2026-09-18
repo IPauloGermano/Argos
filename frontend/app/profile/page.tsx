@@ -471,19 +471,11 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Botão de Salvar no Rodapé */}
-      <div className="flex items-center justify-between pt-2">
-        <span className="text-xs text-zinc-400">
+      {/* Informação no Rodapé */}
+      <div className="pt-2 text-right">
+        <span className="text-xs text-zinc-500">
           Suas alterações são aplicadas imediatamente às próximas buscas.
         </span>
-        <button
-          type="button"
-          className="btn-primary text-xs py-2.5 px-5 min-h-[42px]"
-          disabled={saving}
-          onClick={saveAll}
-        >
-          {saving ? "Salvando..." : "Salvar Alterações"}
-        </button>
       </div>
     </div>
   );
