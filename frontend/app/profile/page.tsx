@@ -120,12 +120,18 @@ export default function ProfilePage() {
 
   const handleUploadResume = async (file: File) => {
     setUploading(true);
-    setMsg("⏳ Analisando currículo com inteligência artificial...");
+    setMsg("⏳ Extraindo e analisando informações do currículo...");
     try {
       const res = await api.uploadResume(file);
       setP(res);
-      setMsg("✅ Currículo processado com sucesso! Seus dados e habilidades foram atualizados.");
-      setTimeout(() => setMsg(""), 5000);
+      // Atualiza também as preferências caso tenham sido sincronizadas
+      try {
+        const updatedPrefs = await api.get("/api/preferences");
+        if (updatedPrefs) setPrefs(updatedPrefs);
+      } catch {}
+      const skillsCount = res.skills?.length || 0;
+      setMsg(`✅ Currículo processado com sucesso! Identificado: ${res.headline || "Perfil Técnico"} (${skillsCount} tecnologias detectadas).`);
+      setTimeout(() => setMsg(""), 6000);
     } catch (e) {
       setMsg(`❌ Erro no processamento do arquivo: ${String(e)}`);
     } finally {
@@ -197,10 +203,10 @@ export default function ProfilePage() {
               <div>
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                   <span>📄</span>
-                  <span>Extrair Informações do Currículo (PDF, DOCX, TXT)</span>
+                  <span>Extrair Informações do Currículo (PDF, DOCX, TXT, RTF, MD)</span>
                 </h2>
                 <p className="text-xs text-zinc-400 mt-1 max-w-prose leading-relaxed">
-                  Envie seu currículo em PDF, DOCX ou TXT para preenchimento automático.
+                  Compatível com múltiplos modelos (Canva, LinkedIn, 2 colunas, acadêmico, internacional, Word ou texto simples).
                 </p>
               </div>
 
@@ -208,7 +214,7 @@ export default function ProfilePage() {
                 <span>{uploading ? "Lendo arquivo..." : "📁 Enviar Currículo"}</span>
                 <input
                   type="file"
-                  accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                  accept=".pdf,.docx,.doc,.txt,.rtf,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain,application/rtf,text/rtf,text/markdown"
                   disabled={uploading}
                   className="hidden"
                   onChange={(e) => {

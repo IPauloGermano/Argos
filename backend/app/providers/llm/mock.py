@@ -29,25 +29,5 @@ class MockLLMProvider(LLMProvider):
         return {**scores, "reasoning": reasons[:6]}
 
     async def parse_resume(self, resume_text: str) -> dict:
-        text = resume_text or ""
-        skills_pool = ["Python", "FastAPI", "PostgreSQL", "Docker", "Redis", "Celery",
-                       "TypeScript", "Next.js", "React", "AWS", "Kubernetes", "SQL"]
-        found = [s for s in skills_pool if re.search(r"\b" + re.escape(s) + r"\b", text, re.I)]
-        years = 0
-        m = re.search(r"(\d+)\s*(anos|years|yrs)", text, re.I)
-        if m:
-            years = int(m.group(1))
-        seniority = "junior" if years < 2 else ("mid" if years < 5 else "senior")
-        headline = "Software Engineer"
-        m2 = re.search(r"(Backend|Frontend|Full.?stack|Data|DevOps)[^\n]{0,40}", text, re.I)
-        if m2:
-            headline = m2.group(0).strip()[:80]
-        return {
-            "headline": headline,
-            "summary": text[:500],
-            "years_experience": years,
-            "seniority": seniority,
-            "skills": found or ["Python", "SQL"],
-            "roles": [headline, "Software Engineer"],
-            "languages": ["Portuguese", "English"] if re.search(r"english", text, re.I) else ["Portuguese"],
-        }
+        from app.services.resume import deterministic_parse_resume
+        return deterministic_parse_resume(resume_text or "")

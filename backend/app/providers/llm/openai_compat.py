@@ -79,12 +79,21 @@ class OpenAICompatProvider(LLMProvider):
             return {**base, "reasoning": reasons}
 
     async def parse_resume(self, resume_text: str) -> dict:
-        fallback = {"headline": "Software Engineer", "summary": resume_text[:500],
-                    "years_experience": 0, "seniority": "mid", "skills": [],
-                    "roles": ["Software Engineer"], "languages": []}
+        from app.services.resume import deterministic_parse_resume
+        base = deterministic_parse_resume(resume_text or "")
         try:
-            raw = await self._chat(RESUME_SYSTEM, resume_text[:8000])
-            data = self._safe_json(raw, fallback)
-            return {**fallback, **data}
+            raw = await self._chat(RESUME_SYSTEM, (resume_text or "")[:8000])
+            llm_data = self._safe_json(raw, {})
+            merged = dict(base)
+            for k in ("headline", "summary", "years_experience", "seniority"):
+                if llm_data.get(k) not in (None, ""):
+                    merged[k] = llm_data[k]
+            if llm_data.get("skills"):
+                merged["skills"] = list(dict.fromkeys(base.get("skills", []) + llm_data["skills"]))
+            if llm_data.get("roles"):
+                merged["roles"] = list(dict.fromkeys(llm_data["roles"] + base.get("roles", [])))
+            if llm_data.get("languages"):
+                merged["languages"] = llm_data["languages"]
+            return merged
         except Exception:
-            return fallback
+            return base

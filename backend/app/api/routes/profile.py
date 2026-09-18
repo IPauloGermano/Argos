@@ -80,14 +80,19 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
     except Exception:
         parsed = {}
 
-    # Se LLM não extraiu skills ou retornou vazio, combina com parser determinístico
     det_parsed = deterministic_parse_resume(text)
-    if not parsed.get("skills"):
-        parsed["skills"] = det_parsed.get("skills", [])
-    if not parsed.get("roles"):
-        parsed["roles"] = det_parsed.get("roles", [])
-    if not parsed.get("seniority"):
-        parsed["seniority"] = det_parsed.get("seniority", "junior")
+    if not parsed:
+        parsed = det_parsed
+    else:
+        for k in ("headline", "summary", "years_experience", "seniority"):
+            if not parsed.get(k) and det_parsed.get(k):
+                parsed[k] = det_parsed[k]
+        if not parsed.get("skills"):
+            parsed["skills"] = det_parsed.get("skills", [])
+        if not parsed.get("roles"):
+            parsed["roles"] = det_parsed.get("roles", [])
+        if not parsed.get("languages"):
+            parsed["languages"] = det_parsed.get("languages", [])
 
     p = _get_profile(db, user.id)
     p.resume_file_path = path
@@ -95,6 +100,21 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
     for k in ("headline", "summary", "years_experience", "seniority", "skills", "roles", "languages"):
         if parsed.get(k) not in (None, ""):
             setattr(p, k, parsed[k])
+
+    # Sincroniza critérios de busca nas preferências do usuário com os dados recém-extraídos
+    prefs = user.preferences
+    if prefs:
+        if p.roles:
+            prefs.desired_roles = p.roles
+        if p.skills:
+            prefs.preferred_keywords = p.skills[:10]
+        if p.seniority in ("junior", "estagio"):
+            prefs.seniority_levels = ["estagio", "trainee", "junior"]
+        elif p.seniority == "mid":
+            prefs.seniority_levels = ["junior", "pleno"]
+        elif p.seniority == "senior":
+            prefs.seniority_levels = ["pleno", "senior"]
+
     db.commit()
     db.refresh(p)
     return p
