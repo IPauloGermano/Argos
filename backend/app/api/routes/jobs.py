@@ -135,6 +135,15 @@ def list_jobs(
     ]
 
 
+@router.post("/cleanup-expired")
+def cleanup_expired_jobs_endpoint(db: Session = Depends(get_db)):
+    prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
+    max_age = (prefs.max_job_age_days if prefs else None) or 60
+    from app.services.cleanup import purge_expired_jobs
+    purged = purge_expired_jobs(db, max_age_days=max_age)
+    return {"status": "ok", "purged_count": purged, "max_age_days": max_age}
+
+
 @router.get("/{job_id}")
 def job_detail(job_id: int, db: Session = Depends(get_db)):
     j = db.get(Job, job_id)

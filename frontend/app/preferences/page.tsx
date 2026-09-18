@@ -288,6 +288,9 @@ export default function PreferencesPage() {
               onChange={(e) => set("max_job_age_days", Number(e.target.value))}
               className="input-field"
             />
+            <p className="text-[11px] text-zinc-400 mt-1">
+              Vagas publicadas há mais tempo são excluídas automaticamente do sistema (suas vagas salvas são sempre preservadas).
+            </p>
           </div>
         </div>
       </div>

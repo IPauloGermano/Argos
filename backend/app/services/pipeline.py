@@ -271,6 +271,16 @@ def run_search_sync() -> dict:
 
         p_dict = _profile_dict(profile)
         prefs_dict = _prefs_dict(prefs)
+
+        # 0. Limpeza automática de vagas expiradas (> max_job_age_days)
+        try:
+            from app.services.cleanup import purge_expired_jobs
+            purged = purge_expired_jobs(db, max_age_days=prefs.max_job_age_days or 60)
+            if purged > 0:
+                stats["purged_expired"] = purged
+        except Exception as e:
+            log_event("PURGE_EXPIRED_JOBS_ERROR", error=str(e))
+
         existing_urls = set(db.scalars(select(Job.url)).all())
         existing_external_ids = set(db.scalars(select(Job.external_id).where(Job.external_id != "")).all())
 

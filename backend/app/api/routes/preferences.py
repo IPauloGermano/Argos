@@ -61,4 +61,13 @@ def update_preferences(body: PreferencesUpdate, db: Session = Depends(get_db)):
         except Exception:
             pass
 
+    # Se a idade máxima de vagas foi alterada, executa limpeza automática imediata
+    if body.max_job_age_days is not None:
+        try:
+            from app.services.cleanup import purge_expired_jobs
+            purge_expired_jobs(db, max_age_days=body.max_job_age_days)
+        except Exception:
+            pass
+
     return prefs
+
