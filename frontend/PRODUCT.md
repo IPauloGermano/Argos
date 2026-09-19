@@ -1,11 +1,11 @@
-# PRODUCT.md — Hermes Job Hunter 2.0
+# PRODUCT.md — Argos Job Hunter 2.0
 
 ## O que é
-Assistente pessoal de busca de empregos. O Hermes monitora plataformas de vagas,
+Assistente pessoal de busca de empregos. O Argos monitora plataformas de vagas,
 compara oportunidades com o perfil do usuário e apresenta as que merecem atenção.
 
 ## Princípio
-**O Hermes procura. O usuário decide.** Nada de candidatura automática.
+**O Argos procura. O usuário decide.** Nada de candidatura automática.
 
 ## Para quem
 Candidatos (foco atual: devs BR, júnior→sênior, remoto/híbrido) que não querem
@@ -16,7 +16,7 @@ varrer sites de vagas todo dia.
 2. "Por que esta vaga combina comigo?" → análise por vaga
 3. "Como me candidato rápido?" → link direto para a fonte (1 CTA claro)
 4. "Avisem-me das novas" → Alertas (Telegram/Discord)
-5. "O que o Hermes sabe sobre mim?" → Perfil + Preferências
+5. "O que o Argos sabe sobre mim?" → Perfil + Preferências
 
 ## O que o usuário NÃO quer ver
 crawler, scraping, circuit breaker, deduplicação, pipeline, engines,

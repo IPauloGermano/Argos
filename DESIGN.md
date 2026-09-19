@@ -25,13 +25,13 @@ typography:
   mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
 ---
 
-# Design System — Hermes Job Hunter 2.0
+# Design System — Argos Job Hunter 2.0
 
 <!-- impeccable:design-schema 1 -->
 
-## Creative North Star: "O Mensageiro Criterioso" (The Discerning Herald)
+## Creative North Star: "O Vigia Criterioso" (The Discerning Watchman)
 
-O Hermes Job Hunter 2.0 não é um painel de DevOps nem um clone de SaaS corporativo com estética "AI neon". Ele é um **concierge de carreira pessoal, calmo e criterioso**. Ele herda a sobriedade e a autoridade de uma publicação editorial nobre (como The Economist ou Financial Times), combinada com a agilidade de um instrumento pessoal de produtividade.
+O Argos Job Hunter 2.0 não é um painel de DevOps nem um clone de SaaS corporativo com estética "AI neon". Ele é um **concierge de carreira pessoal, calmo e criterioso**. Ele herda a sobriedade e a autoridade de uma publicação editorial nobre (como The Economist ou Financial Times), combinada com a agilidade de um instrumento pessoal de produtividade.
 
 ---
 
@@ -58,7 +58,7 @@ O Hermes Job Hunter 2.0 não é um painel de DevOps nem um clone de SaaS corpora
 * **Tela de Fundo (Canvas):** `#0e1015` — Carvão mineral profundo, acolhedor e sereno.
 * **Superfície dos Blocos (Panels):** `#151820` — Grafite com borda fina `#282d3c` (1px).
 * **Superfície Elevada / Hover:** `#1c202b` — Contraste sutil e natural ao focar ou passar o mouse.
-* **Acentuação Principal (Âmbar Hermes):** `#f59e0b` / hover `#d97706` — Calor, inteligência e claridade.
+* **Acentuação Principal (Âmbar Argos):** `#f59e0b` / hover `#d97706` — Calor, inteligência e claridade.
 * **Compatibilidade (Match Verde):** `#10b981` — Usado exclusivamente para pontuações de aderência e verificações.
 * **Texto Primário:** `#f3f4f6` — Branco quente, alto contraste sem queimar os olhos.
 * **Texto Secundário:** `#9ca3af` — Legível, tom quente neutro (contraste $\ge 4.5:1$).

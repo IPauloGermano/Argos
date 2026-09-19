@@ -148,7 +148,7 @@ export default function ProfilePage() {
             Meu Perfil & Preferências de Vagas
           </h1>
           <p className="text-xs text-zinc-400 max-w-prose">
-            Configure seu perfil e critérios para que o Hermes selecione oportunidades sob medida para você.
+            Configure seu perfil e critérios para que o Argos selecione oportunidades sob medida para você.
           </p>
         </div>
 

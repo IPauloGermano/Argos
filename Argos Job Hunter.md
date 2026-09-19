@@ -1,4 +1,4 @@
-# Hermes Job Hunter
+# Argos Job Hunter
 
 Um agente de IA que roda continuamente em Docker, monitora fontes de vagas e envia para o usuário apenas as oportunidades que correspondem ao seu perfil e aos seus filtros.
 
@@ -31,7 +31,7 @@ O usuário fornece:
 * Idiomas
 * Empresas de interesse
 
-O Hermes transforma essas informações em um perfil estruturado para fazer o matching das vagas.
+O Argos transforma essas informações em um perfil estruturado para fazer o matching das vagas.
 
 ### 2. Configurar os filtros
 
@@ -73,7 +73,7 @@ Os filtros podem ser alterados a qualquer momento.
 
 ### 3. Pesquisa contínua
 
-O Hermes roda em intervalos configuráveis:
+O Argos roda em intervalos configuráveis:
 
 ```text
 A cada 15 minutos
@@ -144,7 +144,7 @@ Ou:
 
 **E-mail**
 
-O Hermes envia um resumo periódico, por exemplo:
+O Argos envia um resumo periódico, por exemplo:
 
 > 7 novas vagas encontradas nas últimas 3 horas.
 
@@ -225,7 +225,7 @@ Score >= 80%
                                        │
                                        ▼
                                 ┌──────────────┐
-                                │ Hermes Agent │
+                                │ Argos Agent  │
                                 └──────┬───────┘
                                        │
                          ┌─────────────┼─────────────┐
@@ -245,7 +245,7 @@ Score >= 80%
 
 ## Princípio do produto
 
-**O Hermes procura. A IA filtra e entende. O usuário recebe.**
+**O Argos procura. A IA filtra e entende. O usuário recebe.**
 
 Ele não precisa se candidatar automaticamente, preencher formulários ou tomar decisões pelo usuário.
 

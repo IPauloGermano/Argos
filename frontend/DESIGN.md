@@ -1,7 +1,7 @@
-# DESIGN.md — Hermes Job Hunter 2.0
+# DESIGN.md — Argos Job Hunter 2.0
 
 ## Conceito: "mesa do correspondente"
-O Hermes é um correspondente de empregos meticuloso, não um dashboard.
+O Argos é um correspondente de empregos meticuloso, não um dashboard.
 Linguagem visual de **livro-caixa editorial**: fileiras pautadas (ledger),
 tipografia serifada para voz humana, um único sinal âmbar para o que importa.
 

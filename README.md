@@ -1,7 +1,7 @@
-# Hermes Job Hunter 2.0 🚀
+# Argos Job Hunter 2.0 🚀
 ### Agente Autônomo 24/7 para Busca, Validação, Deduplicação e Monitoramento de Oportunidades Profissionais
 
-O **Hermes Job Hunter** é um sistema completo e autônomo projetado para rastrear a internet 24 horas por dia, 7 dias por semana em busca de vagas de emprego, estágios, trainees e oportunidades semelhantes em múltiplas fontes simultâneas.
+O **Argos Job Hunter** é um sistema completo e autônomo projetado para rastrear a internet 24 horas por dia, 7 dias por semana em busca de vagas de emprego, estágios, trainees e oportunidades semelhantes em múltiplas fontes simultâneas.
 
 O agente elimina o trabalho manual e repetitivo de monitorar dezenas de sites de vagas, garantindo **máxima cobertura**, **zero repetição de vagas**, **descarte de anúncios fantasmas** e **alertas instantâneos** por Telegram, Discord e E-mail.
 

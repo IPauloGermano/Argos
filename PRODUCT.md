@@ -12,15 +12,15 @@ Candidatos e profissionais de tecnologia (desenvolvedores backend, frontend, ful
 
 ## Product Purpose
 
-O Hermes Job Hunter 2.0 é um assistente pessoal contínuo de carreira que monitora em tempo real portais de vagas (LinkedIn, Gupy, Greenhouse, Remotive, Vagas, CIEE, Indeed), filtra ruído e vagas fantasmas, deduplica anúncios entre plataformas e apresenta com clareza as oportunidades que realmente justificam a atenção e candidatura do usuário.
+O Argos Job Hunter 2.0 é um assistente pessoal contínuo de carreira que monitora em tempo real portais de vagas (LinkedIn, Gupy, Greenhouse, Remotive, Vagas, CIEE, Indeed), filtra ruído e vagas fantasmas, deduplica anúncios entre plataformas e apresenta com clareza as oportunidades que realmente justificam a atenção e candidatura do usuário.
 
 ## Positioning
 
-Diferente de agregadores genéricos de emprego ou painéis de controle de engenharia, o Hermes se posiciona como um assistente de confiança: ele compreende o histórico e os anseios do candidato, detalha em linguagem humana os motivos de aderência técnica ("Combina com seu perfil porque pede Python e Docker"), fornece atalho direto para candidatura na fonte oficial e calibra seu algoritmo com base nos feedbacks do usuário.
+Diferente de agregadores genéricos de emprego ou painéis de controle de engenharia, o Argos se posiciona como um assistente de confiança: ele compreende o histórico e os anseios do candidato, detalha em linguagem humana os motivos de aderência técnica ("Combina com seu perfil porque pede Python e Docker"), fornece atalho direto para candidatura na fonte oficial e calibra seu algoritmo com base nos feedbacks do usuário.
 
 ## Operating Context
 
-O candidato interage com o Hermes pelo navegador (em desktop no setup de trabalho ou no celular em trânsito) para verificar novas oportunidades descobertas, analisar requisitos essenciais, salvar vagas em favoritos e receber alertas no Telegram ou Discord. A experiência deve ser silenciosa, límpida, de alta legibilidade e sem distrações mecânicas.
+O candidato interage com o Argos pelo navegador (em desktop no setup de trabalho ou no celular em trânsito) para verificar novas oportunidades descobertas, analisar requisitos essenciais, salvar vagas em favoritos e receber alertas no Telegram ou Discord. A experiência deve ser silenciosa, límpida, de alta legibilidade e sem distrações mecânicas.
 
 ## Capabilities and Constraints
 
@@ -35,7 +35,7 @@ O candidato interage com o Hermes pelo navegador (em desktop no setup de trabalh
 
 ## Brand Commitments
 
-- **Nome:** Hermes Job Hunter 2.0 — O mensageiro confiável e veloz de oportunidades de carreira.
+- **Nome:** Argos Job Hunter 2.0 — O radar atento e incansável de oportunidades de carreira.
 - **Tom de voz:** Objetivo, profissional, empático, sofisticado e transparente.
 - **Identidade:** Visual autoral e editorial. Rejeição explícita da estética clichê de IA ("AI slop": gradientes neon roxos/azuis, badges de arco-íris, cards dentro de cards, glow artificial, texto cinza ilegível e métricas de infraestrutura desnecessárias).
 

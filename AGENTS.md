@@ -1,4 +1,4 @@
-# AGENTS.md — Hermes Job Hunter 2.0
+# AGENTS.md — Argos Job Hunter 2.0
 
 ## Regra principal
 **Todas as alterações vão para a branch `dev`. Nunca commitar direto na `main`.**

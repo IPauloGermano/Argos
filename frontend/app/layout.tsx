@@ -3,7 +3,7 @@ import Nav from "../components/Nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Hermes Job Hunter 2.0 • Assistente Pessoal de Vagas",
+  title: "Argos Job Hunter 2.0 • Assistente Pessoal de Vagas",
   description: "Seu concierge autônomo de busca de empregos e oportunidades de carreira personalizadas.",
 };
 
@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className="flex items-center gap-2.5">
                 <span className="text-amber-400 text-xl" aria-hidden="true">✦</span>
                 <span className="text-xl font-bold tracking-tight text-white font-serif">
-                  Hermes
+                  Argos
                 </span>
                 <span className="text-xs text-zinc-400 font-medium px-2 py-0.5 rounded bg-surface-card border border-surface-border">
                   Job Hunter 2.0
@@ -49,7 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           {/* Rodapé Sóbrio */}
           <footer className="mt-16 pt-6 border-t border-surface-border text-center text-xs text-zinc-400 flex flex-col sm:flex-row sm:justify-between gap-2">
-            <p>Hermes Job Hunter 2.0 • Curadoria Pessoal de Carreira</p>
+            <p>Argos Job Hunter 2.0 • Curadoria Pessoal de Carreira</p>
             <p className="text-zinc-400">Você no controle total das suas candidaturas</p>
           </footer>
         </div>

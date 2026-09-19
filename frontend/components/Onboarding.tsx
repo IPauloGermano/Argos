@@ -94,7 +94,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           <div>
             <h2 className="text-base font-bold text-white">Configuração Inicial Rápida</h2>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Personalize o Hermes em menos de 1 minuto para receber as vagas certas
+              Personalize o Argos em menos de 1 minuto para receber as vagas certas
             </p>
           </div>
 
@@ -240,7 +240,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               Quer usar seu currículo para recomendações mais precisas?
             </h3>
             <p className="text-xs text-zinc-400 mt-1">
-              O Hermes analisa suas tecnologias e histórico para calcular a compatibilidade exata com cada vaga. (Opcional)
+              O Argos analisa suas tecnologias e histórico para calcular a compatibilidade exata com cada vaga. (Opcional)
             </p>
           </div>
 
@@ -248,7 +248,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           <div className="p-8 rounded-xl border-2 border-dashed border-surface-border hover:border-brand-500/50 bg-surface-elevated/40 text-center transition-all">
             <span className="text-3xl mb-3 block" aria-hidden="true">📄</span>
             <p className="text-sm font-semibold text-zinc-200">
-              Envie seu currículo em PDF, DOCX ou TXT
+              Envie seu currículo em PDF, DOCX, TXT, RTF ou MD
             </p>
             <p className="text-xs text-zinc-400 mt-1 mb-5">
               Seus dados permanecem salvos em segurança no seu banco de dados local.
@@ -258,7 +258,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <span>{uploading ? "Processando arquivo..." : "📁 Enviar Currículo (PDF / DOCX / TXT)"}</span>
               <input
                 type="file"
-                accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                accept=".pdf,.docx,.doc,.txt,.rtf,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain,application/rtf,text/rtf,text/markdown"
                 disabled={uploading || saving}
                 className="hidden"
                 onChange={(e) => {
@@ -302,7 +302,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         <div className="py-10 text-center space-y-4">
           <span className="text-4xl block text-amber-400" aria-hidden="true">✦</span>
           <h3 className="text-xl font-bold text-white">
-            Perfeito! Agora o Hermes vai procurar oportunidades para você.
+            Perfeito! Agora o Argos vai procurar oportunidades para você.
           </h3>
           <p className="text-xs text-zinc-300 max-w-md mx-auto leading-relaxed">
             Configuração concluída com sucesso. Estamos varrendo as plataformas em tempo real e montando seu painel personalizado.

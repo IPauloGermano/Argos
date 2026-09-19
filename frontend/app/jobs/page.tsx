@@ -422,7 +422,7 @@ export default function JobsPage() {
             {activeTab === "favorites"
               ? "Clique no ícone de estrela nas vagas do catálogo para salvá-las aqui e consultá-las facilmente."
               : activeTab === "new"
-              ? "O Hermes continua varrendo as fontes 24/7. Novas oportunidades descobertas aparecerão aqui automaticamente."
+              ? "O Argos continua varrendo as fontes 24/7. Novas oportunidades descobertas aparecerão aqui automaticamente."
               : activeTab === "ignored"
               ? "Vagas que você ignorar com o botão '✕' aparecerão aqui caso deseje revisá-las ou restaurá-las."
               : "Tente ajustar ou limpar os filtros de busca para ver mais oportunidades."}

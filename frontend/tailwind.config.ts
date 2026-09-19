@@ -10,7 +10,7 @@ module.exports = {
           200: "#fde68a",
           300: "#fcd34d",
           400: "#fbbf24",
-          500: "#f59e0b", // Hermes Amber Gold
+          500: "#f59e0b", // Argos Amber Gold
           600: "#d97706",
           700: "#b45309",
           800: "#92400e",
