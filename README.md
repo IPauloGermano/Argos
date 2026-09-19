@@ -91,7 +91,7 @@ flowchart TD
 ## 📁 Estrutura de Pastas
 
 ```text
-hermes/
+Argos/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
@@ -161,7 +161,7 @@ Ideal para desenvolvimento e testes rápidos:
 
 ```bash
 # 1. Clone ou entre no diretório
-cd hermes
+cd Argos
 
 # 2. Crie e configure o arquivo de ambiente
 cp .env.example .env
