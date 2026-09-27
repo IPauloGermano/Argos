@@ -38,7 +38,14 @@ async def _scheduled_job():
 def get_scheduler() -> AsyncIOScheduler:
     global _scheduler
     if _scheduler is None:
-        _scheduler = AsyncIOScheduler()
+        _scheduler = AsyncIOScheduler(
+            timezone="UTC",
+            job_defaults={
+                "coalesce": True,
+                "max_instances": 1,
+                "misfire_grace_time": 300,
+            },
+        )
     return _scheduler
 
 
@@ -54,15 +61,18 @@ def start_scheduler(interval_minutes: Optional[int] = None):
     if sched.get_job("job_hunter_agent"):
         sched.reschedule_job(
             "job_hunter_agent",
-            trigger=IntervalTrigger(minutes=_current_interval_minutes)
+            trigger=IntervalTrigger(minutes=_current_interval_minutes, timezone="UTC")
         )
     else:
         sched.add_job(
             _scheduled_job,
-            trigger=IntervalTrigger(minutes=_current_interval_minutes),
+            trigger=IntervalTrigger(minutes=_current_interval_minutes, timezone="UTC"),
             id="job_hunter_agent",
             name="Hermes 24/7 Job Search Cycle",
-            replace_existing=True
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=300,
         )
 
     if not sched.running:

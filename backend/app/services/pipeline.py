@@ -256,6 +256,11 @@ def run_search_sync() -> dict:
     lock_acquired, lock_info = acquire_pipeline_lock(run_uuid, initiator="sync_search")
     if not lock_acquired:
         log_event("SEARCH_SKIPPED_ALREADY_RUNNING", run_id=run_uuid, active_lock=lock_info)
+        try:
+            _r = get_redis_client()
+            _r.incr("hermes:metrics:lock_skipped")
+        except Exception:
+            pass
         return {
             "status": "skipped",
             "reason": "already_running",
@@ -276,12 +281,20 @@ def run_search_sync() -> dict:
         "new": 0,
         "updated": 0,
         "notified": 0,
+        "lock_skipped": 0,
+        "provider_zero_results": [],
+        "provider_failures": [],
         "errors": [],
         "source_stats": {}
     }
 
     # Inicializa SearchRun no início do ciclo com status 'running' (B-02 telemetria)
     try:
+        try:
+            _rl = get_redis_client()
+            _ls = int(_rl.get("hermes:metrics:lock_skipped") or 0)
+        except Exception:
+            _ls = 0
         search_run = SearchRun(
             run_id=run_uuid,
             started_at=started,
@@ -294,6 +307,9 @@ def run_search_sync() -> dict:
             new_count=0,
             updated_count=0,
             notified_count=0,
+            lock_skipped=_ls,
+            provider_zero_results=[],
+            provider_failures=[],
             errors=[],
             source_stats={},
             discard_reasons={}
@@ -325,20 +341,39 @@ def run_search_sync() -> dict:
 
         # 0. Limpeza automática de vagas expiradas (> max_job_age_days) e vagas de exemplo/teste
         try:
-            from app.services.cleanup import purge_expired_jobs, purge_example_jobs
+            from app.services.cleanup import purge_expired_jobs, purge_example_jobs, purge_old_discard_ledger
             purged = purge_expired_jobs(db, max_age_days=prefs.max_job_age_days or 60)
             if purged > 0:
                 stats["purged_expired"] = purged
             purged_examples = purge_example_jobs(db)
             if purged_examples > 0:
                 stats["purged_examples"] = purged_examples
+            try:
+                purge_old_discard_ledger(db, retention_days=14)
+            except Exception:
+                pass
         except Exception as e:
             log_event("PURGE_EXPIRED_JOBS_ERROR", error=str(e))
 
         # Otimização O(N): carrega apenas identificadores das vagas recentes
+        # com limite para evitar estouro de memória em bases grandes.
         recent_cutoff = started - timedelta(days=prefs.max_job_age_days or 60)
-        existing_urls = set(db.scalars(select(Job.url).where(Job.discovered_at >= recent_cutoff)).all())
-        existing_external_ids = set(db.scalars(select(Job.external_id).where(Job.external_id != "", Job.discovered_at >= recent_cutoff)).all())
+        existing_urls = set(
+            db.scalars(
+                select(Job.url)
+                .where(Job.discovered_at >= recent_cutoff, Job.url != "")
+                .order_by(Job.id.desc())
+                .limit(20000)
+            ).all()
+        )
+        existing_external_ids = set(
+            db.scalars(
+                select(Job.external_id)
+                .where(Job.external_id != "", Job.discovered_at >= recent_cutoff)
+                .order_by(Job.id.desc())
+                .limit(20000)
+            ).all()
+        )
 
         query = {
             "desired_roles": prefs.desired_roles or profile.roles or ["Backend Developer"],
@@ -359,12 +394,56 @@ def run_search_sync() -> dict:
         stats["source_stats"] = source_stats
         stats["pages_crawled"] = pages_count
         stats["found"] = len(collected)
+        # Telemetria por provider: distingue zero-real de falha (FASE 17/18)
+        try:
+            _zero, _fail = [], []
+            for _sname, _sinfo in (source_stats or {}).items():
+                _st = str((_sinfo or {}).get("status", "")).lower()
+                _found = int((_sinfo or {}).get("found", 0) or 0)
+                if _found == 0 and _st in ("ok", "success", "empty"):
+                    _zero.append(_sname)
+                if _st in ("error", "timeout", "failed", "disabled", "unavailable", "circuit_open", "auth_required", "rate_limited"):
+                    _fail.append({"source": _sname, "status": _st, "error": str((_sinfo or {}).get("error", ""))[:300]})
+                elif _sinfo and _sinfo.get("error"):
+                    _fail.append({"source": _sname, "status": _st or "error", "error": str(_sinfo.get("error"))[:300]})
+            stats["provider_zero_results"] = _zero
+            stats["provider_failures"] = _fail
+            # Anomalia de zero repetido: streak em Redis (regra operacional simples)
+            try:
+                _rz = get_redis_client()
+                for _sname in (source_stats or {}).keys():
+                    _found = int(((source_stats.get(_sname) or {}).get("found", 0)) or 0)
+                    _k = f"hermes:provider:zero_streak:{_sname}"
+                    if _found == 0:
+                        _streak = _rz.incr(_k)
+                        _rz.expire(_k, 86400 * 2)
+                        if _streak >= 3:
+                            log_event("PROVIDER_ZERO_ANOMALY", run_id=run_uuid, provider=_sname, streak=int(_streak))
+                    else:
+                        _rz.delete(_k)
+            except Exception:
+                pass
+        except Exception:
+            pass
         log_event("JOBS_FOUND", count=len(collected), pages=pages_count)
 
         # Carrega vagas recentes do banco para comparação fuzzy de deduplicação
+        # com narrowing por tokens de empresa (FASE 36): índice invertido
+        # token -> vagas, para comparar cada vaga nova contra K << 300
+        # candidatas em vez de todas as 300 recentes.
+        from app.services.dedup import company_blocking_tokens
         recent_db_jobs = db.scalars(
             select(Job).where(Job.status != "closed").order_by(Job.id.desc()).limit(300)
         ).all()
+        _company_token_index: dict[str, list] = {}
+        for _rj in recent_db_jobs:
+            try:
+                for _tok in company_blocking_tokens(_rj.company or ""):
+                    _company_token_index.setdefault(_tok, []).append(_rj)
+            except Exception:
+                continue
+        stats["fuzzy_comparisons"] = 0
+        stats["fuzzy_narrowed"] = 0
 
         # Otimização de I/O: Pré-carrega todos os hashes existentes no banco em uma única query
         all_incoming_hashes = set()
@@ -390,9 +469,35 @@ def run_search_sync() -> dict:
         seen_keys: set[str] = set()
 
         now_utc = datetime.now(timezone.utc)
+        discard_ledger_buffer: list[dict] = []
+
+        def _record_discard(source: str, stage: str, reason: str, jd_in: dict | None, detail: str = ""):
+            stats["discarded"] += 1
+            stats["discard_reasons"][reason] = stats["discard_reasons"].get(reason, 0) + 1
+            try:
+                discard_ledger_buffer.append({
+                    "run_id": run_uuid,
+                    "source": (source or "")[:64],
+                    "stage": (stage or "")[:32],
+                    "reason": (reason or "")[:128],
+                    "detail": (detail or "")[:2000],
+                    "title": str((jd_in or {}).get("title") or "")[:255],
+                    "company": str((jd_in or {}).get("company") or "")[:255],
+                    "url": str((jd_in or {}).get("url") or "")[:1024],
+                    "external_id": str((jd_in or {}).get("external_id") or "")[:255],
+                })
+            except Exception:
+                pass
 
         # Loop por vaga com isolamento estrito de erros (B-02: vaga envenenada não aborta ciclo)
-        for nj in collected:
+        for _idx, nj in enumerate(collected):
+            # Renovação de lease do lock para ciclos longos (B-04)
+            if _idx and _idx % 50 == 0:
+                try:
+                    from app.core.distributed_lock import renew_pipeline_lock
+                    renew_pipeline_lock(run_uuid)
+                except Exception:
+                    pass
             try:
                 jd = _job_to_dict(nj)
                 title = jd["title"]
@@ -416,9 +521,8 @@ def run_search_sync() -> dict:
                 jd["status_reason"] = freshness.get("ghost_reason", "")
 
                 if freshness["is_ghost"]:
-                    stats["discarded"] += 1
                     reason = freshness.get("ghost_reason") or "ghost_vacancy"
-                    stats["discard_reasons"][reason] = stats["discard_reasons"].get(reason, 0) + 1
+                    _record_discard(jd.get("source", ""), "ghost", reason, jd, freshness.get("ghost_reason", ""))
                     continue
 
                 # 3. Deduplicação em Memória (dentro da mesma execução)
@@ -429,10 +533,28 @@ def run_search_sync() -> dict:
                 # 4. Deduplicação no Banco (Exact Hash em memória ou query)
                 existing_db_job = existing_jobs_by_hash.get(ch)
 
-                # 5. Deduplicação no Banco (Fuzzy Matching de Título e Empresa)
+                # 5. Deduplicação no Banco (Fuzzy com candidate narrowing por empresa)
                 if not existing_db_job:
                     sim_threshold = getattr(settings, "DEDUPLICATION_SIMILARITY_THRESHOLD", 0.88)
-                    for active_job in recent_db_jobs:
+                    # Narrowing: candidatas que compartilham >=1 token de empresa.
+                    # Sem tokens em comum => company_match impossível => sem fuzzy.
+                    _cand_seen: set[int] = set()
+                    _candidates: list = []
+                    try:
+                        for _tok in company_blocking_tokens(company or ""):
+                            for _cj in _company_token_index.get(_tok, []):
+                                if _cj.id not in _cand_seen:
+                                    _cand_seen.add(_cj.id)
+                                    _candidates.append(_cj)
+                                    if len(_candidates) >= 40:
+                                        break
+                            if len(_candidates) >= 40:
+                                break
+                    except Exception:
+                        _candidates = []
+                    stats["fuzzy_narrowed"] += len(_candidates)
+                    for active_job in _candidates:
+                        stats["fuzzy_comparisons"] += 1
                         is_dup, dup_reason = are_jobs_duplicate(
                             {"title": title, "company": company, "location": location, "url": jd["url"]},
                             {"title": active_job.title, "company": active_job.company, "location": active_job.location, "url": active_job.url},
@@ -509,8 +631,7 @@ def run_search_sync() -> dict:
                 # 6. Validação Estrita (Filtros de Exclusão, Mandatórios, Spam, Integridade)
                 is_valid, discard_reason = validate_job(jd, prefs_dict)
                 if not is_valid:
-                    stats["discarded"] += 1
-                    stats["discard_reasons"][discard_reason] = stats["discard_reasons"].get(discard_reason, 0) + 1
+                    _record_discard(jd.get("source", ""), "validation", discard_reason, jd, discard_reason)
                     continue
 
                 stats["valid"] += 1
@@ -565,11 +686,17 @@ def run_search_sync() -> dict:
                         location_score=ranking_result.get("location_score", 0),
                         role_score=ranking_result.get("role_score", 0),
                         salary_score=ranking_result.get("salary_score", 0),
+                        recency_score=ranking_result.get("recency_score", 0),
                         reasoning=reasoning[:8]
                     ))
                     db.commit()
                     stats["new"] += 1
                     recent_db_jobs.append(new_job)
+                    try:
+                        for _tok in company_blocking_tokens(new_job.company or ""):
+                            _company_token_index.setdefault(_tok, []).append(new_job)
+                    except Exception:
+                        pass
                     existing_jobs_by_hash[ch] = new_job
                 except IntegrityError:
                     db.rollback()
@@ -594,7 +721,14 @@ def run_search_sync() -> dict:
                         stats["errors"].append(f"notify:{type(e).__name__}")
 
             except Exception as job_exc:
-                # Isolamento estrito de erro por vaga (B-02)
+                # Isolamento estrito de erro por vaga (B-02) com savepoint:
+                # rollback limpa apenas o estado sujo do job atual sem
+                # inutilizar a sessão para os jobs seguintes.
+                import traceback
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 err_source = getattr(nj, "source", None) or "unknown"
                 err_url = getattr(nj, "url", None) or ""
                 err_ext_id = getattr(nj, "external_id", None) or ""
@@ -612,18 +746,46 @@ def run_search_sync() -> dict:
                     source=err_source,
                     external_id=err_ext_id,
                     url=err_url,
-                    error=err_msg
+                    error=err_msg,
+                    stage="per_job",
+                    exc_type=type(job_exc).__name__,
+                    traceback=traceback.format_exc()[-2000:],
                 )
                 continue
+
+        # Persiste ledger de descarte (amostragem, TTL lógico via cleanup)
+        try:
+            from app.models.entities import DiscardLedger
+            for entry in discard_ledger_buffer[:500]:
+                db.add(DiscardLedger(**entry))
+            db.flush()
+        except Exception as ledger_err:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            log_event("DISCARD_LEDGER_ERROR", run_id=run_uuid, error=str(ledger_err))
 
         # Salva em lote alterações em vagas existentes (B-06: com log estruturado de erro)
         try:
             db.commit()
         except Exception as e:
-            db.rollback()
+            import traceback
+            try:
+                db.rollback()
+            except Exception:
+                pass
             err_msg = f"batch_commit_error:{type(e).__name__}:{str(e)}"
             stats["errors"].append(err_msg)
-            log_event("BATCH_COMMIT_ERROR", run_id=run_uuid, error=str(e))
+            log_event(
+                "BATCH_COMMIT_ERROR",
+                run_id=run_uuid,
+                stage="batch_commit",
+                error=str(e),
+                exc_type=type(e).__name__,
+                traceback=traceback.format_exc()[-3000:],
+                status="partial_error",
+            )
 
         finished = datetime.now(timezone.utc)
         status_str = "partial_error" if stats["errors"] else "completed"
@@ -637,9 +799,16 @@ def run_search_sync() -> dict:
         }
 
     except Exception as exc:
+        import traceback
         cycle_crashed = True
         stats["errors"].append(f"cycle_crash:{type(exc).__name__}:{str(exc)}")
-        log_event("SEARCH_CYCLE_CRASH", run_id=run_uuid, error=str(exc))
+        log_event(
+            "SEARCH_CYCLE_CRASH",
+            run_id=run_uuid,
+            error=str(exc),
+            exc_type=type(exc).__name__,
+            traceback=traceback.format_exc()[-3000:],
+        )
         raise
 
     finally:
@@ -660,6 +829,13 @@ def run_search_sync() -> dict:
                 sr.new_count = stats["new"]
                 sr.updated_count = stats["updated"]
                 sr.notified_count = stats["notified"]
+                try:
+                    _rl2 = get_redis_client()
+                    sr.lock_skipped = int(_rl2.get("hermes:metrics:lock_skipped") or 0)
+                except Exception:
+                    pass
+                sr.provider_zero_results = stats.get("provider_zero_results", [])
+                sr.provider_failures = stats.get("provider_failures", [])
                 sr.errors = stats["errors"]
                 sr.source_stats = stats["source_stats"]
                 sr.discard_reasons = stats["discard_reasons"]

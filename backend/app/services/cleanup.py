@@ -12,8 +12,25 @@ from app.models.entities import (
     JobFeedback,
     UserFavorite,
     SearchPreferences,
+    DiscardLedger,
 )
 from app.core.logging import log_event
+
+
+def purge_old_discard_ledger(db: Session, retention_days: int = 14) -> int:
+    """Remove entradas antigas do ledger de descarte (TTL lógico)."""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        res = db.execute(delete(DiscardLedger).where(DiscardLedger.created_at < cutoff))
+        db.commit()
+        return res.rowcount or 0
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log_event("PURGE_DISCARD_LEDGER_ERROR", error=str(e))
+        return 0
 
 
 def purge_expired_jobs(db: Session, max_age_days: Optional[int] = 60) -> int:

@@ -13,6 +13,7 @@ celery_app.conf.update(
         "periodic-search-if-due": {"task": "hermes.periodic_search_if_due", "schedule": 300.0},
         "hourly-digest": {"task": "hermes.hourly_digest", "schedule": crontab(minute=0)},
         "daily-digest": {"task": "hermes.daily_digest", "schedule": crontab(hour=8, minute=0)},
+        "dispatch-outbox": {"task": "hermes.dispatch_notification_outbox", "schedule": 120.0},
     },
 )
 
@@ -22,10 +23,7 @@ celery_app.autodiscover_tasks(["app.workers"])
 from celery.signals import worker_ready
 
 
-@worker_ready.connect
-def on_worker_ready(**kwargs):
-    try:
-        from app.core.database import apply_lightweight_migrations
-        apply_lightweight_migrations()
-    except Exception as e:
-        print(f"[Celery Worker DB Init Warning] {e}")
+# DDL apenas no backend (lifespan). O worker reutiliza o schema existente
+# para evitar corrida DDL entre processos. Alembic é o caminho oficial;
+# apply_lightweight_migrations permanece como fallback local.
+# @worker_ready.connect — intencionalmente desativado.

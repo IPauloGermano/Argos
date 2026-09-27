@@ -16,6 +16,7 @@ apscheduler==3.10.4
 rapidfuzz==3.10.1
 cloakbrowser==0.5.10
 playwright==1.63.0
+alembic==1.14.1
 pytest==9.1.1             # PYSEC-2026-1845 fix (8.x → 9.0.3+)
 pytest-asyncio==1.4.0
 anyio>=4.8.0

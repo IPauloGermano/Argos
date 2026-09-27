@@ -61,11 +61,19 @@ def check_closure_signals(text: str) -> tuple[bool, str]:
 async def check_url_liveness(url: str, timeout: float = 5.0) -> tuple[bool, int, str]:
     """
     Verifica se a página da vaga ainda existe (HTTP 200/300) ou se retornou 404/410/erro.
+    Com proteção SSRF: bloqueia hosts privados/loopback/.local antes de qualquer fetch.
+    Fail-open em erro de rede para evitar falsos positivos.
     """
     if not url:
         return False, 0, "empty_url"
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+        from app.providers.jobs.http_client import is_private_url
+        if is_private_url(url):
+            return True, 0, "ssrf_blocked_private_host"
+    except Exception:
+        pass
+    try:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
             resp = await client.head(url, headers=headers)
             if resp.status_code in (404, 410):

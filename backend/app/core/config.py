@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
     TELEGRAM_TIMEOUT_SECONDS: int = 15
+    # Secret configurado via setWebhook(secret_token=...). O Telegram o
+    # reenvia em X-Telegram-Bot-Api-Secret-Token. Quando configurado, o
+    # /webhook exige o header; sem secret (dev) o endpoint aceita local.
+    TELEGRAM_WEBHOOK_SECRET: str = ""
 
     DISCORD_WEBHOOK_URL: str = ""
     DISCORD_TIMEOUT_SECONDS: int = 15

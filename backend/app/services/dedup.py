@@ -62,13 +62,31 @@ def strip_accents(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def _is_tracking_param(key: str) -> bool:
+    k = key.lower()
+    if k in TRACKING_PARAMS:
+        return True
+    if k == "utm" or k.startswith("utm_"):
+        return True
+    return False
+
+
 def normalize_url(url: str) -> str:
-    """Normaliza URLs removendo todas as query strings, fragmentos e barras finais."""
+    """Normaliza URLs removendo apenas parâmetros de tracking, fragmentos e barras finais.
+
+    Preserva query params funcionais (ex: ?id=123, ?jobId=abc) que podem
+    representar anúncios distintos. Remove apenas TRACKING_PARAMS conhecidos
+    e qualquer utm_*.
+    """
     if not url:
         return ""
     try:
         p = urlparse(url.strip())
-        clean = p._replace(query="", fragment="", netloc=p.netloc.lower(), path=p.path.rstrip("/"))
+        qsl = parse_qsl(p.query, keep_blank_values=False)
+        kept = [(k, v) for k, v in qsl if not _is_tracking_param(k)]
+        kept.sort()
+        clean_query = urlencode(kept)
+        clean = p._replace(query=clean_query, fragment="", netloc=p.netloc.lower(), path=p.path.rstrip("/"))
         return urlunparse(clean).lower()
     except Exception:
         return url.strip().lower()
@@ -142,6 +160,20 @@ def dedup_key(title: str, company: str, location: str) -> str:
     norm_c = normalize_company(company)
     norm_l = normalize_location(location)
     return f"{norm_t}|{norm_c}|{norm_l}"
+
+
+def company_blocking_tokens(company: str) -> set[str]:
+    """Tokens de bloqueio para narrowing: tokens da empresa normalizada.
+
+    Usado para reduzir candidatos do fuzzy de O(N) para O(K): só compara
+    contra vagas que compartilham >=1 token de empresa. Como
+    `are_jobs_duplicate` exige company_match, empresas sem nenhum token em
+    comum jamais seriam duplicadas — estreitamento seguro (sem falsos
+    negativos além de casos extremos de abreviação total, ex: 'IBM' vs
+    'International Business Machines', que o fuzzy de empresa >=90 também
+    não pegaria).
+    """
+    return set(normalize_company(company).split())
 
 
 def are_jobs_duplicate(

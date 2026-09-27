@@ -162,6 +162,7 @@ class JobMatch(Base):
     location_score: Mapped[int] = mapped_column(Integer, default=0)
     role_score: Mapped[int] = mapped_column(Integer, default=0)
     salary_score: Mapped[int] = mapped_column(Integer, default=0)
+    recency_score: Mapped[int] = mapped_column(Integer, default=0)
     reasoning: Mapped[list] = mapped_column(JSONType, default=list)
 
 
@@ -169,17 +170,49 @@ class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
         UniqueConstraint("user_id", "job_id", "channel", name="uq_notifications_user_job_channel"),
+        UniqueConstraint("user_id", "job_id", "channel", "event_type", name="uq_notifications_logical"),
         Index("ix_notif_user_status", "user_id", "status"),
         Index("ix_notif_job", "job_id"),
         Index("ix_notif_channel", "channel"),
+        Index("ix_notif_outbox", "status", "next_attempt_at"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
     channel: Mapped[str] = mapped_column(String(16))
+    # Tipo lógico do evento (new_match, critical_update, digest). Garante
+    # idempotência lógica: user + job + channel + event_type é único.
+    event_type: Mapped[str] = mapped_column(String(32), default="new_match")
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
+
+
+class DiscardLedger(Base):
+    """Ledger com TTL lógico de vagas descartadas (por que o job X não apareceu?)."""
+    __tablename__ = "discard_ledger"
+    __table_args__ = (
+        Index("ix_discard_run", "run_id"),
+        Index("ix_discard_source_stage", "source", "stage"),
+        Index("ix_discard_created", "created_at"),
+        Index("ix_discard_url", "url"),
+        Index("ix_discard_external", "external_id"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    source: Mapped[str] = mapped_column(String(64), default="")
+    stage: Mapped[str] = mapped_column(String(32), default="")  # validation, ghost, dedup, ranking
+    reason: Mapped[str] = mapped_column(String(128), default="")
+    detail: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(String(255), default="")
+    company: Mapped[str] = mapped_column(String(255), default="")
+    url: Mapped[str] = mapped_column(String(1024), default="")
+    external_id: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class SearchRun(Base):
@@ -201,6 +234,9 @@ class SearchRun(Base):
     new_count: Mapped[int] = mapped_column(Integer, default=0)
     updated_count: Mapped[int] = mapped_column(Integer, default=0)
     notified_count: Mapped[int] = mapped_column(Integer, default=0)
+    lock_skipped: Mapped[int] = mapped_column(Integer, default=0)
+    provider_zero_results: Mapped[list] = mapped_column(JSONType, default=list)
+    provider_failures: Mapped[list] = mapped_column(JSONType, default=list)
     errors: Mapped[list] = mapped_column(JSONType, default=list)
     source_stats: Mapped[dict] = mapped_column(JSONType, default=dict)
     discard_reasons: Mapped[dict] = mapped_column(JSONType, default=dict)

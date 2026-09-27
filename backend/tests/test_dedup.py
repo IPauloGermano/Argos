@@ -3,6 +3,10 @@ from app.services.dedup import content_hash, normalize_url, dedup_key
 
 def test_normalize_url_removes_query_and_fragment():
     assert normalize_url("https://Example.com/jobs/1/?utm=x#top") == "https://example.com/jobs/1"
+    # Tracking params removidos, funcionais preservados
+    assert normalize_url("https://x.com/j/1?utm_source=google&fbclid=abc") == "https://x.com/j/1"
+    assert "id=123" in normalize_url("https://x.com/j?id=123&utm_source=google")
+    assert normalize_url("https://x.com/j?id=123") != normalize_url("https://x.com/j?id=456")
 
 
 def test_content_hash_stable_and_differs():
@@ -14,7 +18,10 @@ def test_content_hash_stable_and_differs():
 
 def test_content_hash_prefers_external_id_and_url():
     assert content_hash("A", "B", "C", external_id="ext-1") == content_hash("X", "Y", "Z", external_id="ext-1")
-    assert content_hash("A", "B", "C", url="https://x.com/j/1?a=2") == content_hash("A", "B", "C", url="https://x.com/j/1")
+    # Query funcional distinta => hash distinto (anúncios distintos)
+    assert content_hash("A", "B", "C", url="https://x.com/j/1?id=2") != content_hash("A", "B", "C", url="https://x.com/j/1?id=3")
+    # Tracking removido => mesmo hash
+    assert content_hash("A", "B", "C", url="https://x.com/j/1?utm_source=g") == content_hash("A", "B", "C", url="https://x.com/j/1")
 
 
 def test_dedup_key_case_insensitive():
