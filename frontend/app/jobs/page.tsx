@@ -8,6 +8,11 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [favorites, setFavorites] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const PAGE_SIZE = 50;
   const [f, setF] = useState({
     search: "",
     min_score: "",
@@ -22,8 +27,10 @@ export default function JobsPage() {
   const [preferredCityDisplay, setPreferredCityDisplay] = useState<string>("");
   const [preferredTech, setPreferredTech] = useState<string>("");
 
-  const loadAll = async (overrideParams?: any, targetTab?: "all" | "new" | "favorites" | "ignored") => {
+  const loadAll = async (overrideParams?: any, targetTab?: "all" | "new" | "favorites" | "ignored", append = false) => {
     setLoading(true);
+    setApiError(null);
+    setIsOffline(typeof navigator !== "undefined" && !navigator.onLine);
     const currentTab = targetTab || activeTab;
     const params = overrideParams || f;
     const q = new URLSearchParams();
@@ -36,17 +43,33 @@ export default function JobsPage() {
     if (params.location) q.set("location", params.location);
     if (currentTab === "new") q.set("only_new", "true");
     if (currentTab === "ignored") q.set("exclude_dismissed", "false");
-    q.set("limit", "200"); // teto da API: sem isso o backend devolve só 50
+    const effOffset = append ? offset + PAGE_SIZE : 0;
+    q.set("limit", String(PAGE_SIZE));
+    q.set("offset", String(effOffset));
 
     try {
       const [jobsData, favsData] = await Promise.all([
-        api.get(`/api/jobs?${q.toString()}`).catch(() => []),
+        api.get(`/api/jobs?${q.toString()}`),
         api.getFavorites().catch(() => []),
       ]);
-      setJobs(jobsData || []);
-      setFavorites(favsData || []);
-    } catch (e) {
+      const arr = Array.isArray(jobsData) ? jobsData : [];
+      setJobs(append ? [...jobs, ...arr] : arr);
+      setFavorites(Array.isArray(favsData) ? favsData : []);
+      setOffset(effOffset);
+      setHasMore(arr.length >= PAGE_SIZE);
+      if (arr.length === 0 && !append) {
+        // Lista vazia legítima (API ok, sem resultados) — não é erro.
+      }
+    } catch (e: any) {
       console.error(e);
+      const msg = String(e?.message || e);
+      if (msg.includes("timed out") || msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("fetch")) {
+        setApiError("API indisponível ou tempo esgotado. Verifique sua conexão e tente novamente.");
+        setIsOffline(true);
+      } else {
+        setApiError(`Falha ao carregar vagas: ${msg.slice(0, 200)}`);
+      }
+      if (!append) setJobs([]);
     } finally {
       setLoading(false);
     }
@@ -398,6 +421,19 @@ export default function JobsPage() {
         )}
       </div>
 
+      {/* Estado degradado/offline: nunca confundir com "sem vagas" */}
+      {apiError && (
+        <div className="surface-panel p-4 border border-red-500/40 bg-red-950/20" role="alert">
+          <p className="text-sm font-semibold text-red-300">
+            {isOffline ? "📡 API indisponível (offline/timeout)" : "⚠️ Falha ao carregar vagas"}
+          </p>
+          <p className="text-xs text-zinc-300 mt-1">{apiError}</p>
+          <button type="button" className="btn-primary text-xs mt-3 min-h-[42px] px-4" onClick={() => loadAll()}>
+            Tentar novamente
+          </button>
+        </div>
+      )}
+
       {/* Listagem de Cards */}
       {loading ? (
         <div className="surface-panel text-center py-16 text-zinc-400 text-sm">
@@ -467,6 +503,14 @@ export default function JobsPage() {
               }}
             />
           ))}
+        </div>
+      )}
+      {/* Paginação */}
+      {!loading && !apiError && hasMore && displayedJobs.length > 0 && (
+        <div className="text-center pt-2">
+          <button type="button" className="btn-ghost text-xs min-h-[42px] px-6" onClick={() => loadAll(undefined, undefined, true)}>
+            Carregar mais vagas
+          </button>
         </div>
       )}
     </div>

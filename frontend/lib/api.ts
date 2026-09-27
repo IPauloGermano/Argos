@@ -1,5 +1,39 @@
 const DEFAULT_TIMEOUT_MS = 12_000;
 
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit | undefined,
+  headers: Record<string, string>,
+  timeoutMs: number,
+  retries = 1
+): Promise<Response> {
+  let lastErr: any = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timerId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { ...init, headers, cache: "no-store", signal: controller.signal });
+      clearTimeout(timerId);
+      // Retry controlado apenas em 502/503/504
+      if ([502, 503, 504].includes(r.status) && attempt < retries) {
+        await new Promise((res) => setTimeout(res, 500 * (attempt + 1)));
+        continue;
+      }
+      return r;
+    } catch (err: any) {
+      clearTimeout(timerId);
+      lastErr = err;
+      if (err?.name === "AbortError") throw err;
+      if (attempt < retries) {
+        await new Promise((res) => setTimeout(res, 500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 const getBaseUrl = () => {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
@@ -30,10 +64,9 @@ function authHeaders(): Record<string, string> {
   return {};
 }
 
-async function req(path: string, init?: RequestInit) {
-  const controller = new AbortController();
-  const timerId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-
+async function req(path: string, init?: RequestInit, opts?: { timeoutMs?: number; retries?: number }) {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const retries = opts?.retries ?? 1;
   const baseHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     ...authHeaders(),
@@ -41,23 +74,16 @@ async function req(path: string, init?: RequestInit) {
   };
 
   try {
-    const r = await fetch(`${API}${path}`, {
-      ...init,
-      headers: baseHeaders,
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    clearTimeout(timerId);
+    const r = await fetchWithRetry(`${API}${path}`, init, baseHeaders, timeoutMs, retries);
     if (!r.ok) {
       const errText = await r.text();
       throw new Error(`${r.status} ${errText}`);
     }
     return r.json();
   } catch (err: any) {
-    clearTimeout(timerId);
     // AbortError = timeout
     if (err.name === "AbortError") {
-      throw new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS}ms: ${path}`);
+      throw new Error(`Request timed out after ${timeoutMs}ms: ${path}`);
     }
     // Se falhar por erro de rede/CORS no browser, tenta proxy relativo do Next.js
     if (

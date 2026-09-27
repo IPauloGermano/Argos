@@ -10,8 +10,60 @@ from app.api.routes import profile, preferences, jobs, agent, notifications, use
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicialização do Banco de Dados e Migrações leves
-    apply_lightweight_migrations(engine)
+    # Migrações: Alembic é o caminho oficial em PostgreSQL.
+    # SQLite/dev/testes usam lightweight (create_all + ensures).
+    # Nunca executa DDL concorrente: apenas o backend no lifespan.
+    try:
+        if settings.DATABASE_URL.startswith("sqlite"):
+            apply_lightweight_migrations(engine)
+        else:
+            try:
+                import os as _os
+                from alembic.config import Config as _Ac
+                from alembic import command as _acmd
+                _here = _os.path.dirname(_os.path.abspath(__file__))  # backend/app
+                _candidates = [
+                    _os.path.join(_here, "..", "alembic.ini"),   # backend/alembic.ini (repo)
+                    _os.path.join("/code", "alembic.ini"),        # /code/alembic.ini (docker)
+                    _os.path.join(_os.getcwd(), "backend", "alembic.ini"),
+                    _os.path.join(_os.getcwd(), "alembic.ini"),
+                ]
+                _ini = next((p for p in _candidates if _os.path.exists(p)), None)
+                if _ini is None:
+                    raise RuntimeError("alembic.ini não encontrado na imagem")
+                _cfg = _Ac(_ini)
+                _cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+                # script_location relativo ao repo quebra no container (/code):
+                # resolve absoluto a partir do alembic.ini encontrado.
+                _base = _os.path.dirname(_os.path.abspath(_ini))
+                _script = _cfg.get_main_option("script_location") or "alembic"
+                if not _os.path.isabs(_script):
+                    _abs = _os.path.normpath(_os.path.join(_base, _script))
+                    if not _os.path.isdir(_abs) and _os.path.isdir(_os.path.join(_base, "alembic")):
+                        _abs = _os.path.join(_base, "alembic")
+                    _cfg.set_main_option("script_location", _abs)
+                _acmd.upgrade(_cfg, "head")
+                print("[Hermes Alembic] upgrade head ok")
+            except Exception as _ae:
+                _msg = str(_ae)
+                # Baseline: DB criado via create_all (sem alembic_version).
+                # Convergência sem perda: lightweight (colunas) -> stamp base
+                # -> upgrade head (0002/0003 idempotentes).
+                if "DuplicateTable" in type(_ae).__name__ or "already exists" in _msg or "DuplicateTable" in _msg:
+                    try:
+                        print(f"[Hermes Alembic] baseline sem versionamento detectado; convergindo: {_msg[:120]}")
+                        apply_lightweight_migrations(engine)
+                        _acmd.stamp(_cfg, "baeffd94ede2")
+                        _acmd.upgrade(_cfg, "head")
+                        print("[Hermes Alembic] baseline convergido para head")
+                    except Exception as _be:
+                        print(f"[Hermes Alembic Warning] convergência falhou ({_be}); fallback lightweight")
+                        apply_lightweight_migrations(engine)
+                else:
+                    print(f"[Hermes Alembic Warning] {_msg[:300]}; fallback lightweight")
+                    apply_lightweight_migrations(engine)
+    except Exception as _e:
+        print(f"[Hermes DB Init Warning] {_e}")
 
     # Inicialização do Scheduler 24/7 (se habilitado)
     if settings.ENABLE_BUILTIN_SCHEDULER:

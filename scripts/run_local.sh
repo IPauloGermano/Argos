@@ -49,11 +49,9 @@ sleep 2
 # 6. Inicia o Frontend (Next.js na porta 3000)
 echo "• Iniciando Frontend Web Dashboard (porta 3000)..."
 cd "$DIR/frontend"
-if [ -d "$DIR/frontend/.next" ]; then
-    npm run start &
-else
-    npm run dev &
-fi
+# Usa sempre 'npm run dev' em execução local para evitar erros de build desatualizado.
+# Para produção use Docker Compose (que roda `next build` no Dockerfile).
+npm run dev &
 FRONTEND_PID=$!
 
 # Aguarda o frontend subir
