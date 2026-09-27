@@ -1,4 +1,4 @@
-fastapi==0.115.6
+fastapi==0.141.1
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
@@ -6,16 +6,17 @@ SQLAlchemy==2.0.36
 psycopg[binary]==3.2.5
 celery[redis]==5.4.0
 redis==5.2.1
-python-multipart==0.0.20
-pypdf==5.1.0
+python-multipart==0.0.32  # CVE fixes: DoS, path traversal (0.0.20 → 0.0.32)
+pypdf==6.19.0             # CVE fixes: DoS, infinite loops, OOM (5.1.0 → 6.19.0)
 python-docx==1.1.2
 httpx==0.28.1
+httpx2==2.13.1            # starlette 1.x TestClient compatibility
 beautifulsoup4==4.12.3
 apscheduler==3.10.4
 rapidfuzz==3.10.1
 cloakbrowser==0.5.10
 playwright==1.63.0
-pytest==8.3.4
-pytest-asyncio==0.25.0
-anyio==4.8.0
+pytest==9.1.1             # PYSEC-2026-1845 fix (8.x → 9.0.3+)
+pytest-asyncio==1.4.0
+anyio>=4.8.0
 

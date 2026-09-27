@@ -1,3 +1,5 @@
+const DEFAULT_TIMEOUT_MS = 12_000;
+
 const getBaseUrl = () => {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
@@ -12,34 +14,77 @@ const getBaseUrl = () => {
 
 const API = getBaseUrl();
 
+/**
+ * Returns the Authorization header value if NEXT_PUBLIC_API_TOKEN is set.
+ * Admin-only endpoints require this token (Bearer <token>).
+ * Read-only endpoints work without a token.
+ */
+function authHeaders(): Record<string, string> {
+  const token =
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_TOKEN) ||
+    (typeof window !== "undefined" &&
+      (window as any).__NEXT_PUBLIC_API_TOKEN__);
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return {};
+}
+
 async function req(path: string, init?: RequestInit) {
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...authHeaders(),
+    ...((init?.headers as Record<string, string>) || {}),
+  };
+
   try {
     const r = await fetch(`${API}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+      headers: baseHeaders,
       cache: "no-store",
+      signal: controller.signal,
     });
+    clearTimeout(timerId);
     if (!r.ok) {
       const errText = await r.text();
       throw new Error(`${r.status} ${errText}`);
     }
     return r.json();
   } catch (err: any) {
+    clearTimeout(timerId);
+    // AbortError = timeout
+    if (err.name === "AbortError") {
+      throw new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS}ms: ${path}`);
+    }
     // Se falhar por erro de rede/CORS no browser, tenta proxy relativo do Next.js
     if (
       typeof window !== "undefined" &&
-      (err.name === "TypeError" || String(err).includes("fetch") || String(err).includes("NetworkError"))
+      (err.name === "TypeError" ||
+        String(err).includes("fetch") ||
+        String(err).includes("NetworkError"))
     ) {
-      const r2 = await fetch(path, {
-        ...init,
-        headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-        cache: "no-store",
-      });
-      if (!r2.ok) {
-        const errText2 = await r2.text();
-        throw new Error(`${r2.status} ${errText2}`);
+      const controller2 = new AbortController();
+      const timerId2 = setTimeout(() => controller2.abort(), DEFAULT_TIMEOUT_MS);
+      try {
+        const r2 = await fetch(path, {
+          ...init,
+          headers: baseHeaders,
+          cache: "no-store",
+          signal: controller2.signal,
+        });
+        clearTimeout(timerId2);
+        if (!r2.ok) {
+          const errText2 = await r2.text();
+          throw new Error(`${r2.status} ${errText2}`);
+        }
+        return r2.json();
+      } catch (err2: any) {
+        clearTimeout(timerId2);
+        throw err2;
       }
-      return r2.json();
     }
     throw err;
   }
@@ -54,9 +99,10 @@ export const api = {
   delete: (p: string) => req(p, { method: "DELETE" }),
   getFavorites: () => req("/api/favorites"),
   addFavorite: (jobId: number, notes = "") =>
-    req(`/api/favorites/${jobId}${notes ? `?notes=${encodeURIComponent(notes)}` : ""}`, {
-      method: "POST",
-    }),
+    req(
+      `/api/favorites/${jobId}${notes ? `?notes=${encodeURIComponent(notes)}` : ""}`,
+      { method: "POST" }
+    ),
   removeFavorite: (jobId: number) =>
     req(`/api/favorites/${jobId}`, { method: "DELETE" }),
   sendFeedback: (jobId: number, isPositive: boolean) =>
@@ -68,25 +114,37 @@ export const api = {
   uploadResume: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
+    const controller = new AbortController();
+    const timerId = setTimeout(() => controller.abort(), 30_000); // uploads allow longer
 
     try {
       const r = await fetch(`${API}/api/profile/resume`, {
         method: "POST",
+        headers: authHeaders(),
         body: fd,
+        signal: controller.signal,
       });
+      clearTimeout(timerId);
       if (!r.ok) {
         const errText = await r.text();
         throw new Error(errText);
       }
       return r.json();
     } catch (err: any) {
+      clearTimeout(timerId);
+      if (err.name === "AbortError") {
+        throw new Error("Upload timed out after 30s");
+      }
       // Fallback para proxy interno relativo se o acesso direto à porta 8000 falhar
       if (
         typeof window !== "undefined" &&
-        (err.name === "TypeError" || String(err).includes("fetch") || String(err).includes("NetworkError"))
+        (err.name === "TypeError" ||
+          String(err).includes("fetch") ||
+          String(err).includes("NetworkError"))
       ) {
         const r2 = await fetch(`/api/profile/resume`, {
           method: "POST",
+          headers: authHeaders(),
           body: fd,
         });
         if (!r2.ok) {
@@ -98,7 +156,8 @@ export const api = {
       throw err;
     }
   },
-  dismissJob: (jobId: number) => req(`/api/jobs/${jobId}/dismiss`, { method: "POST" }),
-  undismissJob: (jobId: number) => req(`/api/jobs/${jobId}/undismiss`, { method: "POST" }),
+  dismissJob: (jobId: number) =>
+    req(`/api/jobs/${jobId}/dismiss`, { method: "POST" }),
+  undismissJob: (jobId: number) =>
+    req(`/api/jobs/${jobId}/undismiss`, { method: "POST" }),
 };
-
