@@ -36,7 +36,26 @@ client = TestClient(mainmod.app, raise_server_exceptions=False)
 def test_health():
     r = client.get("/health")
     assert r.status_code == 200
-    assert "status" in r.json()
+    assert r.json()["status"] == "ok"
+    assert r.json()["database"] == "ok"
+
+
+def test_health_liveness():
+    r = client.get("/health/live")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+def test_health_readiness_failure(monkeypatch):
+    from unittest.mock import MagicMock
+    mock_engine = MagicMock()
+    mock_engine.connect.side_effect = Exception("DB Connection Lost")
+    monkeypatch.setattr(mainmod, "engine", mock_engine)
+
+    r = client.get("/health")
+    assert r.status_code == 503
+    assert r.json()["status"] == "degraded"
+    assert r.json()["database"] == "error"
 
 
 def test_profile_crud():

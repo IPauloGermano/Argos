@@ -190,7 +190,7 @@ def calculate_location_score(job: dict, prefs: dict) -> tuple[int, list[str]]:
 def calculate_recency_score(job: dict) -> tuple[int, list[str]]:
     published_at = job.get("published_at")
     if not published_at:
-        return 50, ["Data de publicação recente"]
+        return 50, ["Data de publicação não informada"]
 
     if published_at.tzinfo is None:
         pub_utc = published_at.replace(tzinfo=timezone.utc)
@@ -199,6 +199,10 @@ def calculate_recency_score(job: dict) -> tuple[int, list[str]]:
 
     now = datetime.now(timezone.utc)
     diff = now - pub_utc
+
+    # Datas no futuro (ex: fuso descalibrado da fonte) recebem score neutro sem boost artificial
+    if diff.total_seconds() < 0:
+        return 70, ["Data de publicação no futuro"]
 
     if diff <= timedelta(hours=24):
         return 100, ["Publicada nas últimas 24 horas"]
@@ -211,25 +215,88 @@ def calculate_recency_score(job: dict) -> tuple[int, list[str]]:
     return 40, [f"Publicada há {diff.days} dias"]
 
 
+def calculate_salary_score(job: dict, profile: dict, prefs: dict) -> tuple[int, list[str]]:
+    """Calcula a compatibilidade salarial da vaga com a pretensão do candidato."""
+    desired_min = (
+        prefs.get("desired_salary_min")
+        or profile.get("target_salary")
+        or profile.get("desired_salary_min")
+    )
+    job_min = job.get("salary_min")
+    job_max = job.get("salary_max")
+    currency = job.get("currency") or "BRL"
+
+    if not desired_min:
+        if job_min or job_max:
+            return 85, [f"Salário informado na vaga ({currency})"]
+        return 70, ["Salário a combinar"]
+
+    effective_job_salary = job_max or job_min
+    if effective_job_salary:
+        if effective_job_salary >= desired_min:
+            return 100, [f"Salário compatível com pretensão ({currency} {effective_job_salary:.0f})"]
+        ratio = effective_job_salary / desired_min
+        if ratio >= 0.85:
+            return 80, [f"Faixa salarial próxima da pretensão ({currency} {effective_job_salary:.0f})"]
+        score = int(round(max(20, ratio * 100)))
+        return score, [f"Salário abaixo da pretensão ({currency} {effective_job_salary:.0f})"]
+
+    # Sem salário informado
+    return 70, ["Salário a combinar com a empresa"]
+
+
+def get_normalized_match_weights() -> dict[str, float]:
+    """
+    Retorna os pesos configurados normalizados para soma exatamente igual a 1.0.
+    """
+    w_role = getattr(settings, "MATCH_WEIGHT_ROLE", 0.25)
+    w_skills = getattr(settings, "MATCH_WEIGHT_SKILLS", 0.30)
+    w_seniority = getattr(settings, "MATCH_WEIGHT_SENIORITY", 0.15)
+    w_location = getattr(settings, "MATCH_WEIGHT_LOCATION", 0.10)
+    w_salary = getattr(settings, "MATCH_WEIGHT_SALARY", 0.10)
+    w_recency = getattr(settings, "MATCH_WEIGHT_OVERALL", 0.10)
+
+    total = w_role + w_skills + w_seniority + w_location + w_salary + w_recency
+    if total <= 0:
+        return {
+            "role": 0.25,
+            "skills": 0.30,
+            "seniority": 0.15,
+            "location": 0.10,
+            "salary": 0.10,
+            "recency": 0.10,
+        }
+    return {
+        "role": w_role / total,
+        "skills": w_skills / total,
+        "seniority": w_seniority / total,
+        "location": w_location / total,
+        "salary": w_salary / total,
+        "recency": w_recency / total,
+    }
+
+
 def rank_job_relevance(job: dict, profile: dict, prefs: dict) -> dict:
     """
-    Classifica a vaga por relevância (0 a 100) com atomicidade de perfil:
-    Role: 30%, Skills: 30%, Seniority: 20%, Location: 15%, Recency: 5%.
-    Aplica freio de senioridade (Sênior nunca supera Júnior/Estágio) e de distância física.
+    Classifica a vaga por relevância (0 a 100) com atomicidade e pesos configuráveis:
+    Role, Skills, Seniority, Location, Salary, Recency.
+    Aplica freio de senioridade e de distância física.
     """
     rs, rs_reasons = calculate_role_score(job, profile, prefs)
     ss, ss_reasons = calculate_skills_score(job, profile, prefs)
     sns, sns_reasons = calculate_seniority_score(job, profile, prefs)
     ls, ls_reasons = calculate_location_score(job, prefs)
+    sal, sal_reasons = calculate_salary_score(job, profile, prefs)
     rec, rec_reasons = calculate_recency_score(job)
 
-    # Cálculo ponderado conforme as 5 dimensões atômicas
+    weights = get_normalized_match_weights()
     total = (
-        0.30 * rs
-        + 0.30 * ss
-        + 0.20 * sns
-        + 0.15 * ls
-        + 0.05 * rec
+        weights["role"] * rs
+        + weights["skills"] * ss
+        + weights["seniority"] * sns
+        + weights["location"] * ls
+        + weights["salary"] * sal
+        + weights["recency"] * rec
     )
     final_score = int(round(max(0, min(100, total))))
 
@@ -262,6 +329,7 @@ def rank_job_relevance(job: dict, profile: dict, prefs: dict) -> dict:
         *ss_reasons,
         *sns_reasons,
         *ls_reasons,
+        *sal_reasons,
     ]
 
     return {
@@ -270,8 +338,8 @@ def rank_job_relevance(job: dict, profile: dict, prefs: dict) -> dict:
         "skills_score": ss,
         "seniority_score": sns,
         "location_score": ls,
+        "salary_score": sal,
         "recency_score": rec,
-        "salary_score": rec,
         "reasoning": reasoning[:6]
     }
 

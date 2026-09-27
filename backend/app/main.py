@@ -1,6 +1,6 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base, apply_lightweight_migrations
@@ -42,16 +42,22 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r".*",
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
 
+@app.get("/health/live")
+def liveness():
+    return {"status": "ok", "service": "hermes-agent"}
+
+
+@app.get("/health/ready")
 @app.get("/health")
 @app.get("/api/health")
-def health():
+def health(response: Response):
     db_status, redis_status = "ok", "ok"
     try:
         with engine.connect() as conn:
@@ -64,9 +70,14 @@ def health():
     except Exception:
         redis_status = "offline"
 
-    status = "ok" if db_status == "ok" else "degraded"
+    is_healthy = (db_status == "ok")
+    status_str = "ok" if is_healthy else "degraded"
+    
+    if not is_healthy:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
-        "status": status,
+        "status": status_str,
         "database": db_status,
         "redis": redis_status,
         "agent": "Hermes Autonomous Job Hunter 2.0"

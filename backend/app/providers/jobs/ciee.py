@@ -48,6 +48,15 @@ class CIEEJobSource(JobSource):
                         self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
                         break
 
+                    # A API pública do CIEE exige autenticação — detectar resposta HTML
+                    content_type = str(resp.headers.get("content-type", "") or "")
+                    text_prefix = str(resp.text or "").lstrip()[:15]
+                    if "text/html" in content_type or text_prefix.startswith("<!"):
+                        # Endpoint retornou HTML (SPA shell ou login redirect)
+                        self.circuit_breaker.record_failure("CIEE endpoint returns HTML (login required)")
+                        self.last_status = "auth_required"
+                        return []
+
                     try:
                         payload = resp.json()
                     except Exception:

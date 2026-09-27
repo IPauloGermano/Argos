@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
 from app.core.database import get_db
+from app.core.security import require_admin_token
 from app.models.entities import Job, JobMatch, JobChangelog, SearchPreferences, User
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -135,7 +136,7 @@ def list_jobs(
     ]
 
 
-@router.post("/cleanup-expired")
+@router.post("/cleanup-expired", dependencies=[Depends(require_admin_token)])
 def cleanup_expired_jobs_endpoint(db: Session = Depends(get_db)):
     prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
     max_age = (prefs.max_job_age_days if prefs else None) or 60
@@ -187,7 +188,8 @@ def job_detail(job_id: int, db: Session = Depends(get_db)):
             "seniority": m.seniority_score,
             "location": m.location_score,
             "role": m.role_score,
-            "recency": m.salary_score
+            "salary": m.salary_score,
+            "recency": getattr(m, "recency_score", 0)
         } if m else {},
         "reasoning": (m.reasoning if m else []) or [],
         "changelog": [

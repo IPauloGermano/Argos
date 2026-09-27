@@ -2,6 +2,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Body, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.security import require_admin_token
 from app.services.telegram_bot import TelegramBotService
 
 router = APIRouter(prefix="/api/telegram", tags=["telegram"])
@@ -17,7 +18,7 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
         return {"ok": False, "error": str(e)}
 
 
-@router.post("/simulate")
+@router.post("/simulate", dependencies=[Depends(require_admin_token)])
 async def telegram_simulate(
     chat_id: str = "123456",
     text: str = "/start",
@@ -28,13 +29,18 @@ async def telegram_simulate(
     Endpoint de teste e simulação de usuário do Telegram para QA,
     permitindo testar comandos e botões sem precisar de conexão externa com a internet.
     """
+    try:
+        numeric_chat_id = int(chat_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="chat_id must be a numeric integer string.")
+
     if callback_data:
         update = {
             "update_id": 999,
             "callback_query": {
                 "id": "cb_test_123",
-                "from": {"id": int(chat_id), "first_name": "QA Tester"},
-                "message": {"chat": {"id": int(chat_id)}},
+                "from": {"id": numeric_chat_id, "first_name": "QA Tester"},
+                "message": {"chat": {"id": numeric_chat_id}},
                 "data": callback_data
             }
         }
@@ -43,8 +49,8 @@ async def telegram_simulate(
             "update_id": 999,
             "message": {
                 "message_id": 1001,
-                "chat": {"id": int(chat_id)},
-                "from": {"id": int(chat_id), "first_name": "QA Tester"},
+                "chat": {"id": numeric_chat_id},
+                "from": {"id": numeric_chat_id, "first_name": "QA Tester"},
                 "text": text
             }
         }

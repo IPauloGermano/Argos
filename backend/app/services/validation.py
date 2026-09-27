@@ -130,13 +130,17 @@ def validate_job(job: dict, prefs: dict) -> tuple[bool, str]:
     if status in ("closed", "potential_ghost"):
         return False, f"status_{status}"
 
-    blob = f"{title.lower()} {desc.lower()}"
+    reqs = " ".join(job.get("requirements") or []).lower()
+    nice = " ".join(job.get("nice_to_have") or []).lower()
+    blob = f"{title.lower()} {desc.lower()} {reqs} {nice}"
 
-    # 4. Palavras-chave Proibidas (Hard Filter Exclusivo)
+    # 4. Palavras-chave Proibidas (Hard Filter com word-boundary para evitar falsos positivos como java -> javascript)
     excluded_keywords = _norm_list(prefs.get("excluded_keywords"))
     for kw in excluded_keywords:
-        if kw and (f" {kw} " in f" {blob} " or kw in title.lower()):
-            return False, f"excluded_keyword: {kw}"
+        if kw:
+            pattern = rf"\b{re.escape(kw)}\b"
+            if re.search(pattern, title, flags=re.IGNORECASE) or re.search(pattern, blob, flags=re.IGNORECASE):
+                return False, f"excluded_keyword: {kw}"
 
     # 5. Empresas Proibidas
     excluded_companies = _norm_list(prefs.get("excluded_companies"))
@@ -166,10 +170,13 @@ def validate_job(job: dict, prefs: dict) -> tuple[bool, str]:
         if not has_tech_signal:
             return False, "no_tech_or_software_relevance"
 
-    # 7. Palavras-chave Obrigatórias (Se configuradas, ao menos uma ou todas devem constar)
+    # 7. Palavras-chave Obrigatórias (considera título, descrição e requisitos estruturados)
     mandatory_keywords = _norm_list(prefs.get("mandatory_keywords"))
     if mandatory_keywords:
-        has_mandatory = any(kw in blob for kw in mandatory_keywords)
+        has_mandatory = any(
+            re.search(rf"\b{re.escape(kw)}\b", blob, flags=re.IGNORECASE)
+            for kw in mandatory_keywords if kw
+        )
         if not has_mandatory:
             return False, f"missing_mandatory_keyword: {mandatory_keywords}"
 

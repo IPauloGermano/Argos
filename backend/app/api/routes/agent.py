@@ -1,10 +1,12 @@
 from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
+from uuid import uuid4
 from app.core.config import settings
+from app.core.security import require_admin_token
 from app.core.database import get_db, get_redis_client
 from app.models.entities import SearchPreferences, Job, JobMatch, Notification, SearchRun
 from app.services.circuit_breaker import get_all_circuit_breakers
@@ -159,20 +161,23 @@ def agent_status(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/run")
-async def agent_run():
-    """Dispara execução imediata da busca em todas as fontes."""
+@router.post("/run", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_admin_token)])
+async def agent_run(background_tasks: BackgroundTasks):
+    """Dispara execução imediata da busca em todas as fontes (não-bloqueante)."""
     try:
+        r = get_redis_client()
+        r.ping()
         from app.workers.tasks import run_search_task
-        task = run_search_task.delay()
-        return {"triggered": True, "mode": "celery", "task_id": task.id}
+        task = run_search_task.apply_async(retry=False)
+        return {"triggered": True, "mode": "celery", "task_id": str(task.id), "status": "queued"}
     except Exception:
-        # Executa via thread assíncrona local
-        result = await trigger_run_now()
-        return {"triggered": True, "mode": "standalone_scheduler", "result": result}
+        # Fallback assíncrono em background sem prender a conexão HTTP
+        run_uuid = str(uuid4())
+        background_tasks.add_task(trigger_run_now)
+        return {"triggered": True, "mode": "background_task", "run_id": run_uuid, "status": "accepted"}
 
 
-@router.post("/start")
+@router.post("/start", dependencies=[Depends(require_admin_token)])
 def agent_start():
     resume_scheduler()
     try:
@@ -183,7 +188,7 @@ def agent_start():
     return {"running": True, "message": "Agente 24/7 iniciado / retomado"}
 
 
-@router.post("/pause")
+@router.post("/pause", dependencies=[Depends(require_admin_token)])
 def agent_pause():
     pause_scheduler()
     try:

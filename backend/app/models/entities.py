@@ -84,8 +84,10 @@ class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
         UniqueConstraint("content_hash", name="uq_jobs_content_hash"),
+        UniqueConstraint("uuid", name="uq_jobs_uuid"),
         Index("ix_jobs_source", "source"),
         Index("ix_jobs_discovered", "discovered_at"),
+        Index("ix_jobs_published", "published_at"),
         Index("ix_jobs_company", "company"),
         Index("ix_jobs_status", "status"),
         Index("ix_jobs_uuid", "uuid"),
@@ -128,6 +130,7 @@ class JobChangelog(Base):
     __tablename__ = "job_changelogs"
     __table_args__ = (
         Index("ix_changelog_job", "job_id"),
+        Index("ix_changelog_job_field", "job_id", "field_name"),
         Index("ix_changelog_created", "created_at"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -164,8 +167,12 @@ class JobMatch(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
-    __table_args__ = (Index("ix_notif_user_status", "user_id", "status"),
-                      Index("ix_notif_job", "job_id"))
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", "channel", name="uq_notifications_user_job_channel"),
+        Index("ix_notif_user_status", "user_id", "status"),
+        Index("ix_notif_job", "job_id"),
+        Index("ix_notif_channel", "channel"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))

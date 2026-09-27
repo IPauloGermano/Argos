@@ -1,11 +1,14 @@
 from __future__ import annotations
 import asyncio
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from app.core.database import SessionLocal
+from app.core.config import settings
+from app.core.database import SessionLocal, get_redis_client
+from app.core.distributed_lock import acquire_pipeline_lock, release_pipeline_lock
 from app.core.logging import log_event
 from app.models.entities import (
     User, CandidateProfile, SearchPreferences, Job, JobMatch,
@@ -248,6 +251,18 @@ def run_search_sync() -> dict:
 
     started = datetime.now(timezone.utc)
     run_uuid = str(uuid4())
+
+    # Lock Distribuído anti-sobreposição (B-04)
+    lock_acquired, lock_info = acquire_pipeline_lock(run_uuid, initiator="sync_search")
+    if not lock_acquired:
+        log_event("SEARCH_SKIPPED_ALREADY_RUNNING", run_id=run_uuid, active_lock=lock_info)
+        return {
+            "status": "skipped",
+            "reason": "already_running",
+            "run_id": run_uuid,
+            "active_lock": lock_info
+        }
+
     db: Session = SessionLocal()
 
     stats = {
@@ -265,13 +280,38 @@ def run_search_sync() -> dict:
         "source_stats": {}
     }
 
+    # Inicializa SearchRun no início do ciclo com status 'running' (B-02 telemetria)
+    try:
+        search_run = SearchRun(
+            run_id=run_uuid,
+            started_at=started,
+            status="running",
+            pages_crawled=0,
+            jobs_found=0,
+            valid_count=0,
+            duplicates_count=0,
+            discarded_count=0,
+            new_count=0,
+            updated_count=0,
+            notified_count=0,
+            errors=[],
+            source_stats={},
+            discard_reasons={}
+        )
+        db.add(search_run)
+        db.commit()
+    except Exception as init_err:
+        log_event("SEARCH_RUN_INIT_ERROR", error=str(init_err))
+        db.rollback()
+
     r_client = None
     try:
-        from app.core.database import get_redis_client
         r_client = get_redis_client()
         r_client.set("hermes:agent:is_running", "1", ex=600)
     except Exception:
         r_client = None
+
+    cycle_crashed = False
 
     try:
         log_event("SEARCH_STARTED", run_id=run_uuid)
@@ -295,8 +335,10 @@ def run_search_sync() -> dict:
         except Exception as e:
             log_event("PURGE_EXPIRED_JOBS_ERROR", error=str(e))
 
-        existing_urls = set(db.scalars(select(Job.url)).all())
-        existing_external_ids = set(db.scalars(select(Job.external_id).where(Job.external_id != "")).all())
+        # Otimização O(N): carrega apenas identificadores das vagas recentes
+        recent_cutoff = started - timedelta(days=prefs.max_job_age_days or 60)
+        existing_urls = set(db.scalars(select(Job.url).where(Job.discovered_at >= recent_cutoff)).all())
+        existing_external_ids = set(db.scalars(select(Job.external_id).where(Job.external_id != "", Job.discovered_at >= recent_cutoff)).all())
 
         query = {
             "desired_roles": prefs.desired_roles or profile.roles or ["Backend Developer"],
@@ -313,7 +355,7 @@ def run_search_sync() -> dict:
         collected, errors, source_stats, pages_count = asyncio.run(
             _collect_from_sources(query, prefs.enabled_sources)
         )
-        stats["errors"] = errors
+        stats["errors"] = list(errors) if errors else []
         stats["source_stats"] = source_stats
         stats["pages_crawled"] = pages_count
         stats["found"] = len(collected)
@@ -325,16 +367,20 @@ def run_search_sync() -> dict:
         ).all()
 
         # Otimização de I/O: Pré-carrega todos os hashes existentes no banco em uma única query
-        all_incoming_hashes = {
-            content_hash(
-                getattr(nj, "title", "") or "",
-                getattr(nj, "company", "") or "",
-                getattr(nj, "location", "") or "",
-                getattr(nj, "url", "") or "",
-                getattr(nj, "external_id", "") or ""
-            )
-            for nj in collected
-        }
+        all_incoming_hashes = set()
+        for nj in collected:
+            try:
+                ch = content_hash(
+                    getattr(nj, "title", "") or "",
+                    getattr(nj, "company", "") or "",
+                    getattr(nj, "location", "") or "",
+                    getattr(nj, "url", "") or "",
+                    getattr(nj, "external_id", "") or "",
+                    source=getattr(nj, "source", "") or ""
+                )
+                all_incoming_hashes.add(ch)
+            except Exception:
+                pass
         existing_jobs_by_hash = {}
         if all_incoming_hashes:
             for ej in db.scalars(select(Job).where(Job.content_hash.in_(all_incoming_hashes))).all():
@@ -345,210 +391,242 @@ def run_search_sync() -> dict:
 
         now_utc = datetime.now(timezone.utc)
 
+        # Loop por vaga com isolamento estrito de erros (B-02: vaga envenenada não aborta ciclo)
         for nj in collected:
-            jd = _job_to_dict(nj)
-            title = jd["title"]
-            company = jd["company"]
-            location = jd["location"]
-
-            norm_t = normalize_title(title)
-            norm_c = normalize_company(company)
-            norm_l = normalize_location(location)
-            jd["normalized_title"] = norm_t
-            jd["normalized_company"] = norm_c
-
-            ch = content_hash(title, company, location, jd["url"], jd["external_id"])
-            jd["content_hash"] = ch
-            key = dedup_key(title, company, location)
-
-            # 2. Eliminação de Vagas Fantasmas ou Antigas (> 60 dias)
-            freshness = evaluate_job_freshness(jd, max_age_days=prefs.max_job_age_days or 60)
-            jd["status"] = freshness["status"]
-            jd["date_status"] = freshness["date_status"]
-            jd["status_reason"] = freshness.get("ghost_reason", "")
-
-            if freshness["is_ghost"]:
-                stats["discarded"] += 1
-                reason = freshness.get("ghost_reason") or "ghost_vacancy"
-                stats["discard_reasons"][reason] = stats["discard_reasons"].get(reason, 0) + 1
-                continue
-
-            # 3. Deduplicação em Memória (dentro da mesma execução)
-            if ch in seen_hashes or key in seen_keys:
-                stats["deduplicated"] += 1
-                continue
-
-            # 4. Deduplicação no Banco (Exact Hash em memória ou query)
-            existing_db_job = existing_jobs_by_hash.get(ch)
-
-            # 5. Deduplicação no Banco (Fuzzy Matching de Título e Empresa)
-            if not existing_db_job:
-                for active_job in recent_db_jobs:
-                    is_dup, dup_reason = are_jobs_duplicate(
-                        {"title": title, "company": company, "location": location, "url": jd["url"]},
-                        {"title": active_job.title, "company": active_job.company, "location": active_job.location, "url": active_job.url},
-                        similarity_threshold=0.88
-                    )
-                    if is_dup:
-                        existing_db_job = active_job
-                        break
-
-            if existing_db_job:
-                stats["deduplicated"] += 1
-                if existing_db_job.id in (prefs.excluded_jobs or []):
-                    continue
-                # Detecção de Alterações
-                changes = detect_job_changes(existing_db_job, jd)
-                if changes:
-                    stats["updated"] += 1
-                    for chg in changes:
-                        db.add(JobChangelog(
-                            job_id=existing_db_job.id,
-                            field_name=chg["field_name"],
-                            old_value=chg["old_value"],
-                            new_value=chg["new_value"],
-                            change_type=chg["change_type"]
-                        ))
-                    existing_db_job.last_updated_at = now_utc
-
-                # Associação de fonte alternativa caso encontrada em outro portal
-                if jd["source"] and jd["source"] != existing_db_job.source:
-                    alts = list(existing_db_job.alternative_sources or [])
-                    if not any(a.get("url") == jd["url"] for a in alts):
-                        alts.append({"source": jd["source"], "url": jd["url"], "discovered_at": now_utc.isoformat()})
-                        existing_db_job.alternative_sources = alts
-
-                existing_db_job.last_checked_at = now_utc
-                continue
-
-            seen_hashes.add(ch)
-            seen_keys.add(key)
-
-            # 6. Validação Estrita (Filtros de Exclusão, Mandatórios, Spam, Integridade)
-            is_valid, discard_reason = validate_job(jd, prefs_dict)
-            if not is_valid:
-                stats["discarded"] += 1
-                stats["discard_reasons"][discard_reason] = stats["discard_reasons"].get(discard_reason, 0) + 1
-                continue
-
-            stats["valid"] += 1
-
-            # 7. Relevance Ranking Engine (0-100)
-            ranking_result = rank_job_relevance(jd, p_dict, prefs_dict)
-            score = ranking_result["score"]
-            reasoning = ranking_result["reasoning"]
-
-            # 8. Persistência da Nova Oportunidade
-            new_job = Job(
-                uuid=str(uuid4()),
-                external_id=jd["external_id"],
-                source=jd["source"],
-                url=jd["url"],
-                title=jd["title"],
-                normalized_title=norm_t,
-                company=jd["company"],
-                normalized_company=norm_c,
-                location=jd["location"],
-                work_mode=jd["work_mode"],
-                seniority=jd["seniority"],
-                employment_type=jd["employment_type"],
-                area=jd["area"],
-                description=jd["description"],
-                salary_min=jd["salary_min"],
-                salary_max=jd["salary_max"],
-                currency=jd["currency"],
-                requirements=jd["requirements"],
-                nice_to_have=jd["nice_to_have"],
-                published_at=jd["published_at"],
-                date_status=jd["date_status"],
-                discovered_at=now_utc,
-                last_checked_at=now_utc,
-                status=jd["status"],
-                status_reason=jd.get("status_reason", ""),
-                content_hash=ch,
-                alternative_sources=[],
-                raw_data=jd.get("raw_data", {})
-            )
             try:
-                db.add(new_job)
-                db.flush()
+                jd = _job_to_dict(nj)
+                title = jd["title"]
+                company = jd["company"]
+                location = jd["location"]
 
-                # Salva correspondência e pontuação
-                db.add(JobMatch(
-                    job_id=new_job.id,
-                    profile_id=profile.id,
-                    score=score,
-                    skills_score=ranking_result.get("skills_score", 0),
-                    seniority_score=ranking_result.get("seniority_score", 0),
-                    location_score=ranking_result.get("location_score", 0),
-                    role_score=ranking_result.get("role_score", 0),
-                    salary_score=ranking_result.get("salary_score", ranking_result.get("recency_score", 0)),
-                    reasoning=reasoning[:8]
-                ))
-                db.commit()
-                stats["new"] += 1
-                recent_db_jobs.append(new_job)
-                existing_jobs_by_hash[ch] = new_job
-            except IntegrityError:
-                db.rollback()
-                stats["deduplicated"] += 1
+                norm_t = normalize_title(title)
+                norm_c = normalize_company(company)
+                norm_l = normalize_location(location)
+                jd["normalized_title"] = norm_t
+                jd["normalized_company"] = norm_c
+
+                ch = content_hash(title, company, location, jd["url"], jd["external_id"], source=jd["source"])
+                jd["content_hash"] = ch
+                key = dedup_key(title, company, location)
+
+                # 2. Eliminação de Vagas Fantasmas ou Antigas (> 60 dias)
+                freshness = evaluate_job_freshness(jd, max_age_days=prefs.max_job_age_days or 60)
+                jd["status"] = freshness["status"]
+                jd["date_status"] = freshness["date_status"]
+                jd["status_reason"] = freshness.get("ghost_reason", "")
+
+                if freshness["is_ghost"]:
+                    stats["discarded"] += 1
+                    reason = freshness.get("ghost_reason") or "ghost_vacancy"
+                    stats["discard_reasons"][reason] = stats["discard_reasons"].get(reason, 0) + 1
+                    continue
+
+                # 3. Deduplicação em Memória (dentro da mesma execução)
+                if ch in seen_hashes or key in seen_keys:
+                    stats["deduplicated"] += 1
+                    continue
+
+                # 4. Deduplicação no Banco (Exact Hash em memória ou query)
+                existing_db_job = existing_jobs_by_hash.get(ch)
+
+                # 5. Deduplicação no Banco (Fuzzy Matching de Título e Empresa)
+                if not existing_db_job:
+                    sim_threshold = getattr(settings, "DEDUPLICATION_SIMILARITY_THRESHOLD", 0.88)
+                    for active_job in recent_db_jobs:
+                        is_dup, dup_reason = are_jobs_duplicate(
+                            {"title": title, "company": company, "location": location, "url": jd["url"]},
+                            {"title": active_job.title, "company": active_job.company, "location": active_job.location, "url": active_job.url},
+                            similarity_threshold=sim_threshold
+                        )
+                        if is_dup:
+                            existing_db_job = active_job
+                            break
+
+                if existing_db_job:
+                    stats["deduplicated"] += 1
+                    if existing_db_job.id in (prefs.excluded_jobs or []):
+                        continue
+                    # Detecção e persistência real de Alterações (B-01)
+                    changes = detect_job_changes(existing_db_job, jd)
+                    if changes:
+                        real_changes_applied = 0
+                        for chg in changes:
+                            fn = chg["field_name"]
+                            new_val = chg["new_value"]
+
+                            # Idempotência: verifica se o último changelog gravado já possui este valor
+                            last_chg = db.scalar(
+                                select(JobChangelog)
+                                .where(JobChangelog.job_id == existing_db_job.id, JobChangelog.field_name == fn)
+                                .order_by(JobChangelog.id.desc())
+                                .limit(1)
+                            )
+                            if last_chg and last_chg.new_value == new_val:
+                                continue
+
+                            # Persiste os novos valores na tabela jobs
+                            if fn == "salary_min":
+                                existing_db_job.salary_min = jd.get("salary_min")
+                            elif fn == "salary_max":
+                                existing_db_job.salary_max = jd.get("salary_max")
+                            elif fn == "work_mode":
+                                existing_db_job.work_mode = jd.get("work_mode")
+                            elif fn == "location":
+                                existing_db_job.location = jd.get("location")
+                            elif fn == "status":
+                                existing_db_job.status = jd.get("status")
+                            elif fn == "description":
+                                existing_db_job.description = jd.get("description")
+                            elif fn == "published_at":
+                                existing_db_job.published_at = jd.get("published_at")
+
+                            db.add(JobChangelog(
+                                job_id=existing_db_job.id,
+                                field_name=fn,
+                                old_value=chg["old_value"],
+                                new_value=new_val,
+                                change_type=chg["change_type"]
+                            ))
+                            real_changes_applied += 1
+
+                        if real_changes_applied > 0:
+                            stats["updated"] += 1
+                            existing_db_job.last_updated_at = now_utc
+
+                    # Associação de fonte alternativa caso encontrada em outro portal
+                    if jd["source"] and jd["source"] != existing_db_job.source:
+                        alts = list(existing_db_job.alternative_sources or [])
+                        if not any(a.get("url") == jd["url"] for a in alts):
+                            alts.append({"source": jd["source"], "url": jd["url"], "discovered_at": now_utc.isoformat()})
+                            existing_db_job.alternative_sources = alts
+
+                    existing_db_job.last_checked_at = now_utc
+                    continue
+
+                seen_hashes.add(ch)
+                seen_keys.add(key)
+
+                # 6. Validação Estrita (Filtros de Exclusão, Mandatórios, Spam, Integridade)
+                is_valid, discard_reason = validate_job(jd, prefs_dict)
+                if not is_valid:
+                    stats["discarded"] += 1
+                    stats["discard_reasons"][discard_reason] = stats["discard_reasons"].get(discard_reason, 0) + 1
+                    continue
+
+                stats["valid"] += 1
+
+                # 7. Relevance Ranking Engine (0-100)
+                ranking_result = rank_job_relevance(jd, p_dict, prefs_dict)
+                score = ranking_result["score"]
+                reasoning = ranking_result["reasoning"]
+
+                # 8. Persistência da Nova Oportunidade
+                new_job = Job(
+                    uuid=str(uuid4()),
+                    external_id=jd["external_id"],
+                    source=jd["source"],
+                    url=jd["url"],
+                    title=jd["title"],
+                    normalized_title=norm_t,
+                    company=jd["company"],
+                    normalized_company=norm_c,
+                    location=jd["location"],
+                    work_mode=jd["work_mode"],
+                    seniority=jd["seniority"],
+                    employment_type=jd["employment_type"],
+                    area=jd["area"],
+                    description=jd["description"],
+                    salary_min=jd["salary_min"],
+                    salary_max=jd["salary_max"],
+                    currency=jd["currency"],
+                    requirements=jd["requirements"],
+                    nice_to_have=jd["nice_to_have"],
+                    published_at=jd["published_at"],
+                    date_status=jd["date_status"],
+                    discovered_at=now_utc,
+                    last_checked_at=now_utc,
+                    status=jd["status"],
+                    status_reason=jd.get("status_reason", ""),
+                    content_hash=ch,
+                    alternative_sources=[],
+                    raw_data=jd.get("raw_data", {})
+                )
+                try:
+                    db.add(new_job)
+                    db.flush()
+
+                    # Salva correspondência e pontuação
+                    db.add(JobMatch(
+                        job_id=new_job.id,
+                        profile_id=profile.id,
+                        score=score,
+                        skills_score=ranking_result.get("skills_score", 0),
+                        seniority_score=ranking_result.get("seniority_score", 0),
+                        location_score=ranking_result.get("location_score", 0),
+                        role_score=ranking_result.get("role_score", 0),
+                        salary_score=ranking_result.get("salary_score", 0),
+                        reasoning=reasoning[:8]
+                    ))
+                    db.commit()
+                    stats["new"] += 1
+                    recent_db_jobs.append(new_job)
+                    existing_jobs_by_hash[ch] = new_job
+                except IntegrityError:
+                    db.rollback()
+                    stats["deduplicated"] += 1
+                    continue
+
+                # 9. Notificação Multi-canal se ultrapassar score mínimo
+                min_score = prefs.minimum_match_score or 70
+                if score >= min_score:
+                    try:
+                        asyncio.run(notify_job(
+                            db,
+                            user=user,
+                            job_dict=jd,
+                            job_id=new_job.id,
+                            score=score,
+                            reasoning=reasoning,
+                            prefs=prefs
+                        ))
+                        stats["notified"] += 1
+                    except Exception as e:
+                        stats["errors"].append(f"notify:{type(e).__name__}")
+
+            except Exception as job_exc:
+                # Isolamento estrito de erro por vaga (B-02)
+                err_source = getattr(nj, "source", None) or "unknown"
+                err_url = getattr(nj, "url", None) or ""
+                err_ext_id = getattr(nj, "external_id", None) or ""
+                err_msg = f"{type(job_exc).__name__}: {str(job_exc)}"
+                err_entry = {
+                    "source": err_source,
+                    "url": err_url,
+                    "external_id": err_ext_id,
+                    "error": err_msg
+                }
+                stats["errors"].append(err_entry)
+                log_event(
+                    "JOB_PROCESSING_ERROR",
+                    run_id=run_uuid,
+                    source=err_source,
+                    external_id=err_ext_id,
+                    url=err_url,
+                    error=err_msg
+                )
                 continue
 
-            # 9. Notificação Multi-canal se ultrapassar score mínimo
-            min_score = prefs.minimum_match_score or 70
-            if score >= min_score:
-                try:
-                    asyncio.run(notify_job(
-                        db,
-                        user=user,
-                        job_dict=jd,
-                        job_id=new_job.id,
-                        score=score,
-                        reasoning=reasoning,
-                        prefs=prefs
-                    ))
-                    stats["notified"] += 1
-                except Exception as e:
-                    stats["errors"].append(f"notify:{type(e).__name__}")
-
-        # Salva em lote alterações em vagas existentes (last_checked_at, changelogs, alts)
+        # Salva em lote alterações em vagas existentes (B-06: com log estruturado de erro)
         try:
             db.commit()
         except Exception as e:
             db.rollback()
+            err_msg = f"batch_commit_error:{type(e).__name__}:{str(e)}"
+            stats["errors"].append(err_msg)
+            log_event("BATCH_COMMIT_ERROR", run_id=run_uuid, error=str(e))
 
         finished = datetime.now(timezone.utc)
-        status_str = "partial_error" if errors else "completed"
-
-        # 10. Registro no Histórico de Execuções (SearchRun)
-        search_run = SearchRun(
-            run_id=run_uuid,
-            started_at=started,
-            finished_at=finished,
-            status=status_str,
-            pages_crawled=stats["pages_crawled"],
-            jobs_found=stats["found"],
-            valid_count=stats["valid"],
-            duplicates_count=stats["deduplicated"],
-            discarded_count=stats["discarded"],
-            new_count=stats["new"],
-            updated_count=stats["updated"],
-            notified_count=stats["notified"],
-            errors=stats["errors"],
-            source_stats=stats["source_stats"],
-            discard_reasons=stats["discard_reasons"]
-        )
-        db.add(search_run)
-        db.commit()
-
-        # Atualiza estado no Redis para o dashboard
-        try:
-            from app.core.database import get_redis_client
-            r = get_redis_client()
-            r.set("hermes:agent:last_run", finished.isoformat())
-            r.set("hermes:agent:last_stats", __import__("json").dumps(stats))
-        except Exception:
-            pass
+        status_str = "partial_error" if stats["errors"] else "completed"
 
         log_event("SEARCH_COMPLETED", **stats)
         return {
@@ -558,7 +636,48 @@ def run_search_sync() -> dict:
             "status": status_str
         }
 
+    except Exception as exc:
+        cycle_crashed = True
+        stats["errors"].append(f"cycle_crash:{type(exc).__name__}:{str(exc)}")
+        log_event("SEARCH_CYCLE_CRASH", run_id=run_uuid, error=str(exc))
+        raise
+
     finally:
+        finished = datetime.now(timezone.utc)
+        final_status = "failed" if cycle_crashed else ("partial_error" if stats["errors"] else "completed")
+
+        # Atualiza SearchRun no banco de dados com estado garantido (running -> completed/partial_error/failed)
+        try:
+            sr = db.scalar(select(SearchRun).where(SearchRun.run_id == run_uuid))
+            if sr:
+                sr.finished_at = finished
+                sr.status = final_status
+                sr.pages_crawled = stats["pages_crawled"]
+                sr.jobs_found = stats["found"]
+                sr.valid_count = stats["valid"]
+                sr.duplicates_count = stats["deduplicated"]
+                sr.discarded_count = stats["discarded"]
+                sr.new_count = stats["new"]
+                sr.updated_count = stats["updated"]
+                sr.notified_count = stats["notified"]
+                sr.errors = stats["errors"]
+                sr.source_stats = stats["source_stats"]
+                sr.discard_reasons = stats["discard_reasons"]
+                db.commit()
+        except Exception as sr_err:
+            log_event("SEARCH_RUN_FINALIZE_ERROR", error=str(sr_err))
+
+        # Atualiza estado no Redis para o dashboard
+        try:
+            r = get_redis_client()
+            r.set("hermes:agent:last_run", finished.isoformat())
+            r.set("hermes:agent:last_stats", json.dumps(stats, default=str))
+        except Exception:
+            pass
+
+        # Libera lock distribuído
+        release_pipeline_lock(run_uuid)
+
         if r_client:
             try:
                 r_client.delete("hermes:agent:is_running")

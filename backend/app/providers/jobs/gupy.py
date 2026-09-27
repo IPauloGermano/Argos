@@ -165,35 +165,49 @@ class GupyJobSource(JobSource):
 
             async def _fetch_term(term: str) -> list[NormalizedJob]:
                 slug = urllib.parse.quote(term.strip(), safe="")
-                url = f"{self.search_base}/term={slug}"
+                base_url = f"{self.search_base}/term={slug}"
                 term_jobs: list[NormalizedJob] = []
-                try:
-                    resp = await client.get(url, headers=headers)
-                    self.pages_crawled += 1
-                    if resp.status_code == 429:
-                        self.circuit_breaker.record_failure("Rate limit 429")
-                        return []
-                    if resp.status_code != 200:
-                        self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
-                        return []
+                page_offset = 0
 
-                    items, total = self._parse_page(resp.text)
-                    if not items:
-                        return []
+                for _page in range(self.max_pages):
+                    url = base_url if page_offset == 0 else f"{base_url}?offset={page_offset}"
+                    try:
+                        resp = await client.get(url, headers=headers)
+                        self.pages_crawled += 1
 
-                    for item in items:
-                        ext_id = str(item.get("id") or "")
-                        job_url = str(item.get("jobUrl") or f"https://portal.gupy.io/job/{ext_id}")
-                        if ext_id in known_ids or job_url in known_urls:
-                            continue
+                        if resp.status_code == 429:
+                            self.circuit_breaker.record_failure("Rate limit 429")
+                            break
+                        if resp.status_code != 200:
+                            self.circuit_breaker.record_failure(f"HTTP {resp.status_code}")
+                            break
 
-                        try:
-                            nj = self._normalize(item)
-                            term_jobs.append(nj)
-                        except Exception:
-                            continue
-                except Exception as e:
-                    self.circuit_breaker.record_failure(str(e))
+                        items, total = self._parse_page(resp.text)
+                        if not items:
+                            break
+
+                        for item in items:
+                            ext_id = str(item.get("id") or "")
+                            job_url = str(item.get("jobUrl") or f"https://portal.gupy.io/job/{ext_id}")
+                            if ext_id in known_ids or job_url in known_urls:
+                                continue
+                            try:
+                                nj = self._normalize(item)
+                                term_jobs.append(nj)
+                            except Exception:
+                                continue
+
+                        page_offset += PAGE_SIZE
+                        if page_offset >= total:
+                            break
+
+                        # Rate limit delay between pages
+                        await asyncio.sleep(self.rate_limit_delay_seconds)
+
+                    except Exception as e:
+                        self.circuit_breaker.record_failure(str(e))
+                        break
+
                 return term_jobs
 
             results = await asyncio.gather(*[_fetch_term(t) for t in unique_terms], return_exceptions=True)

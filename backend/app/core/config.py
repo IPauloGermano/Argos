@@ -8,8 +8,15 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     BACKEND_PORT: int = 8000
-    CORS_ORIGINS: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     ENVIRONMENT: str = "development"
+    AGENT_API_TOKEN: str = ""
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        if not self.CORS_ORIGINS:
+            return ["http://localhost:3000", "http://127.0.0.1:3000"]
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     # AI / LLM
     LLM_API_KEY: str = ""

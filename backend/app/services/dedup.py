@@ -68,8 +68,7 @@ def normalize_url(url: str) -> str:
         return ""
     try:
         p = urlparse(url.strip())
-        clean_path = p.path.rstrip("/")
-        clean = p._replace(query="", fragment="", netloc=p.netloc.lower(), path=clean_path)
+        clean = p._replace(query="", fragment="", netloc=p.netloc.lower(), path=p.path.rstrip("/"))
         return urlunparse(clean).lower()
     except Exception:
         return url.strip().lower()
@@ -123,10 +122,11 @@ def normalize_location(location: str) -> str:
     return re.sub(r"[^\w\s]", "", loc).strip()
 
 
-def content_hash(title: str, company: str, location: str, url: str = "", external_id: str = "") -> str:
+def content_hash(title: str, company: str, location: str, url: str = "", external_id: str = "", source: str = "") -> str:
     """Gera hash determinístico baseado em identificadores canônicos."""
     if external_id:
-        base = f"ext:{external_id}"
+        src = (source or "").strip().lower()
+        base = f"ext:{src}:{external_id}" if src else f"ext:{external_id}"
     elif url:
         base = f"url:{normalize_url(url)}"
     else:
