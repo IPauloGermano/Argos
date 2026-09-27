@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin_token
+from app.core.rate_limit import limit_upload
 from app.models.entities import User, CandidateProfile
 from app.schemas import ProfileOut, ProfileUpdate
 from app.services.resume import validate_upload, extract_text_from_upload
@@ -39,7 +41,7 @@ def get_profile(db: Session = Depends(get_db)):
     return _get_profile(db, user.id)
 
 
-@router.put("", response_model=ProfileOut)
+@router.put("", response_model=ProfileOut, dependencies=[Depends(require_admin_token)])
 def update_profile(body: ProfileUpdate, db: Session = Depends(get_db)):
     user = _get_user(db)
     p = _get_profile(db, user.id)
@@ -50,7 +52,7 @@ def update_profile(body: ProfileUpdate, db: Session = Depends(get_db)):
     return p
 
 
-@router.post("/resume", response_model=ProfileOut)
+@router.post("/resume", response_model=ProfileOut, dependencies=[Depends(require_admin_token), Depends(limit_upload)])
 async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_db)):
     data = await file.read()
     try:

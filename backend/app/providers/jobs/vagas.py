@@ -24,6 +24,12 @@ class VagasComJobSource(JobSource):
         roles = query.get("desired_roles") or ["desenvolvedor"]
         keyword = roles[0] if roles else "tecnologia"
         slug = urllib.parse.quote(keyword.lower().replace(" ", "-"))
+        # Fallbacks em PT: slugs em inglês (ex: backend-developer) retornam
+        # 200 com 0 cards no Vagas.com. Tenta o termo original e depois PT.
+        slug_candidates = [slug]
+        _pt_fallback = urllib.parse.quote("desenvolvedor")
+        if slug_candidates[0] != _pt_fallback:
+            slug_candidates.append(_pt_fallback)
 
         raw_locations = query.get("locations") or []
         foreign_keywords = (
@@ -31,7 +37,7 @@ class VagasComJobSource(JobSource):
             "portugal", "ireland", "united kingdom", "dublin", "london", "santiago",
             "united states", "usa", "eua"
         )
-        urls_to_crawl = [f"{self.base_url}/vagas-de-{slug}?pagina=1"]
+        urls_to_crawl = [f"{self.base_url}/vagas-de-{slug_candidates[0]}?pagina=1"]
         for loc in raw_locations:
             clean_loc = loc.strip()
             lower = clean_loc.lower()
@@ -51,6 +57,7 @@ class VagasComJobSource(JobSource):
 
         async with httpx.AsyncClient(timeout=min(self.timeout, 6.0)) as client:
             headers = self.get_default_headers()
+            fb_attempted = False
 
             for url in urls_to_crawl:
                 try:
@@ -68,7 +75,26 @@ class VagasComJobSource(JobSource):
                     html = resp.text
                     soup = BeautifulSoup(html, "html.parser")
                     cards = soup.find_all("li", class_=lambda c: c and "vaga" in c)
+                    if not cards and not fb_attempted and len(slug_candidates) > 1:
+                        # HTTP 200 com 0 cards: slug sem resultados (ex: termo em
+                        # inglês). Tenta fallback PT uma vez antes de dar empty.
+                        fb_attempted = True
+                        try:
+                            fb_resp = await client.get(
+                                f"{self.base_url}/vagas-de-desenvolvedor?pagina=1",
+                                headers=headers,
+                            )
+                            self.pages_crawled += 1
+                            if fb_resp.status_code == 200:
+                                fb_soup = BeautifulSoup(fb_resp.text, "html.parser")
+                                fb_cards = fb_soup.find_all("li", class_=lambda c: c and "vaga" in c)
+                                if fb_cards:
+                                    cards = fb_cards
+                                    soup = fb_soup
+                        except Exception:
+                            pass
                     if not cards:
+                        self.last_status = "empty"
                         break
 
                     page_count = 0

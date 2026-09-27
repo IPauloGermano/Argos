@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import require_admin_token
+from app.core.rate_limit import limit_notify_test
 from app.models.entities import Notification, Job, User, SearchPreferences
 from app.services.notifications import notify_job
 
@@ -38,7 +39,7 @@ def list_notifications(db: Session = Depends(get_db), limit: int = 50):
     ]
 
 
-@router.post("/test", dependencies=[Depends(require_admin_token)])
+@router.post("/test", dependencies=[Depends(require_admin_token), Depends(limit_notify_test)])
 async def test_notification(body: TestNotificationRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).order_by(User.id).limit(1))
     prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))

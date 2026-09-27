@@ -78,10 +78,12 @@ class IndeedJobSource(JobSource):
 
                         if resp.status_code in (403, 404, 410, 429):
                             rss_dead = True
+                            self.circuit_breaker.record_failure(f"Indeed RSS HTTP {resp.status_code} (disabled/unavailable)")
                             break
 
                         if resp.status_code != 200:
                             rss_dead = True
+                            self.circuit_breaker.record_failure(f"Indeed RSS HTTP {resp.status_code}")
                             break
 
                         # Parse XML RSS Feed
@@ -147,6 +149,7 @@ class IndeedJobSource(JobSource):
                             jobs.append(nj)
 
                     except Exception:
+                        self.circuit_breaker.record_failure("Indeed RSS exception (unavailable)")
                         rss_dead = True
                         break
 

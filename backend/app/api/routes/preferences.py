@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin_token
 from app.models.entities import User, SearchPreferences
 from app.schemas import PreferencesOut, PreferencesUpdate
 
@@ -30,7 +31,7 @@ def get_preferences(db: Session = Depends(get_db)):
     return _get_prefs(db)
 
 
-@router.put("", response_model=PreferencesOut)
+@router.put("", response_model=PreferencesOut, dependencies=[Depends(require_admin_token)])
 def update_preferences(body: PreferencesUpdate, db: Session = Depends(get_db)):
     prefs = _get_prefs(db)
     if body.email_digest_mode and body.email_digest_mode not in ("immediately", "hourly", "daily"):

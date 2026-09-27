@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
 from app.core.database import get_db
 from app.core.security import require_admin_token
+from app.core.rate_limit import limit_admin
 from app.models.entities import Job, JobMatch, JobChangelog, SearchPreferences, User
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -136,7 +137,7 @@ def list_jobs(
     ]
 
 
-@router.post("/cleanup-expired", dependencies=[Depends(require_admin_token)])
+@router.post("/cleanup-expired", dependencies=[Depends(require_admin_token), Depends(limit_admin)])
 def cleanup_expired_jobs_endpoint(db: Session = Depends(get_db)):
     prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
     max_age = (prefs.max_job_age_days if prefs else None) or 60
@@ -189,7 +190,7 @@ def job_detail(job_id: int, db: Session = Depends(get_db)):
             "location": m.location_score,
             "role": m.role_score,
             "salary": m.salary_score,
-            "recency": getattr(m, "recency_score", 0)
+            "recency": m.recency_score
         } if m else {},
         "reasoning": (m.reasoning if m else []) or [],
         "changelog": [
@@ -205,7 +206,7 @@ def job_detail(job_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/{job_id}/dismiss")
+@router.post("/{job_id}/dismiss", dependencies=[Depends(require_admin_token)])
 def dismiss_job(job_id: int, db: Session = Depends(get_db)):
     job = db.get(Job, job_id)
     if not job:
@@ -233,7 +234,7 @@ def dismiss_job(job_id: int, db: Session = Depends(get_db)):
     return {"status": "ok", "job_id": job_id, "dismissed": True}
 
 
-@router.post("/{job_id}/undismiss")
+@router.post("/{job_id}/undismiss", dependencies=[Depends(require_admin_token)])
 def undismiss_job(job_id: int, db: Session = Depends(get_db)):
     prefs = db.scalar(select(SearchPreferences).order_by(SearchPreferences.id).limit(1))
     if prefs and prefs.excluded_jobs and job_id in prefs.excluded_jobs:

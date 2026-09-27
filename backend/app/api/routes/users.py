@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin_token
 from app.models.entities import User
 from app.schemas import UserOut, UserUpdate
 
@@ -20,7 +21,7 @@ def get_me(db: Session = Depends(get_db)):
     return user
 
 
-@router.put("/me", response_model=UserOut)
+@router.put("/me", response_model=UserOut, dependencies=[Depends(require_admin_token)])
 def update_me(body: UserUpdate, db: Session = Depends(get_db)):
     user = db.scalar(select(User).order_by(User.id).limit(1))
     if not user:

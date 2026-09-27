@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin_token
 from app.models.entities import User, Job
 from app.services.feedback import record_feedback, get_user_feedback
 
@@ -16,7 +17,7 @@ def _get_current_user(db: Session) -> User:
     return user
 
 
-@router.post("/jobs/{job_id}")
+@router.post("/jobs/{job_id}", dependencies=[Depends(require_admin_token)])
 def submit_job_feedback(
     job_id: int,
     is_positive: bool = Body(..., embed=True),

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin_token
 from app.models.entities import User, Job
 from app.services.favorites import add_favorite, remove_favorite, list_favorites, is_favorite
 
@@ -22,7 +23,7 @@ def get_favorites(db: Session = Depends(get_db)):
     return list_favorites(db, user.id)
 
 
-@router.post("/{job_id}")
+@router.post("/{job_id}", dependencies=[Depends(require_admin_token)])
 def create_favorite(job_id: int, notes: str = "", db: Session = Depends(get_db)):
     user = _get_current_user(db)
     job = db.get(Job, job_id)
@@ -32,7 +33,7 @@ def create_favorite(job_id: int, notes: str = "", db: Session = Depends(get_db))
     return {"status": "ok", "favorite_id": fav.id, "job_id": job_id}
 
 
-@router.delete("/{job_id}")
+@router.delete("/{job_id}", dependencies=[Depends(require_admin_token)])
 def delete_favorite(job_id: int, db: Session = Depends(get_db)):
     user = _get_current_user(db)
     removed = remove_favorite(db, user.id, job_id)

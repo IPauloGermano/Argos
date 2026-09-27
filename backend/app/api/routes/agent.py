@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from uuid import uuid4
 from app.core.config import settings
 from app.core.security import require_admin_token
+from app.core.rate_limit import limit_manual_trigger, limit_admin
 from app.core.database import get_db, get_redis_client
 from app.models.entities import SearchPreferences, Job, JobMatch, Notification, SearchRun
 from app.services.circuit_breaker import get_all_circuit_breakers
@@ -161,7 +162,7 @@ def agent_status(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/run", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_admin_token)])
+@router.post("/run", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_admin_token), Depends(limit_manual_trigger)])
 async def agent_run(background_tasks: BackgroundTasks):
     """Dispara execução imediata da busca em todas as fontes (não-bloqueante)."""
     try:
@@ -177,7 +178,7 @@ async def agent_run(background_tasks: BackgroundTasks):
         return {"triggered": True, "mode": "background_task", "run_id": run_uuid, "status": "accepted"}
 
 
-@router.post("/start", dependencies=[Depends(require_admin_token)])
+@router.post("/start", dependencies=[Depends(require_admin_token), Depends(limit_admin)])
 def agent_start():
     resume_scheduler()
     try:
@@ -188,7 +189,7 @@ def agent_start():
     return {"running": True, "message": "Agente 24/7 iniciado / retomado"}
 
 
-@router.post("/pause", dependencies=[Depends(require_admin_token)])
+@router.post("/pause", dependencies=[Depends(require_admin_token), Depends(limit_admin)])
 def agent_pause():
     pause_scheduler()
     try:
@@ -218,6 +219,13 @@ def list_runs(db: Session = Depends(get_db), limit: int = 15):
             "new_count": r.new_count,
             "updated_count": r.updated_count,
             "notified_count": r.notified_count,
+            "lock_skipped": getattr(r, "lock_skipped", 0) or 0,
+            "provider_zero_results": getattr(r, "provider_zero_results", []) or [],
+            "provider_failures": getattr(r, "provider_failures", []) or [],
+            "duration_seconds": (
+                (r.finished_at - r.started_at).total_seconds()
+                if r.finished_at and r.started_at else None
+            ),
             "errors": r.errors or [],
             "source_stats": r.source_stats or {},
             "discard_reasons": r.discard_reasons or {}
@@ -244,12 +252,24 @@ def agent_metrics(db: Session = Depends(get_db)):
     total_notifications = db.scalar(
         select(func.count(Notification.id)).where(Notification.status == "sent")
     ) or 0
+    pending_notifications = db.scalar(
+        select(func.count(Notification.id)).where(Notification.status.in_(["pending", "sending"]))
+    ) or 0
+    failed_notifications = db.scalar(
+        select(func.count(Notification.id)).where(Notification.status == "failed")
+    ) or 0
 
     # Agregação de execuções
     total_runs = db.scalar(select(func.count(SearchRun.id))) or 0
     total_duplicates = db.scalar(select(func.sum(SearchRun.duplicates_count))) or 0
     total_discarded = db.scalar(select(func.sum(SearchRun.discarded_count))) or 0
     total_pages = db.scalar(select(func.sum(SearchRun.pages_crawled))) or 0
+    try:
+        from app.core.database import get_redis_client as _grc
+        _rr = _grc()
+        lock_skipped = int(_rr.get("hermes:metrics:lock_skipped") or 0)
+    except Exception:
+        lock_skipped = db.scalar(select(func.sum(SearchRun.lock_skipped))) or 0
 
     return {
         "jobs": {
@@ -264,7 +284,10 @@ def agent_metrics(db: Session = Depends(get_db)):
             "total_pages_crawled": total_pages,
             "total_duplicates_detected": total_duplicates,
             "total_discarded": total_discarded,
-            "notifications_sent": total_notifications
+            "lock_skipped": lock_skipped,
+            "notifications_sent": total_notifications,
+            "notifications_pending": pending_notifications,
+            "notifications_failed": failed_notifications,
         },
         "circuit_breakers": get_all_circuit_breakers()
     }
@@ -308,3 +331,26 @@ def dashboard(db: Session = Depends(get_db)):
             for j, m in recent
         ]
     }
+
+
+@router.get("/discard-ledger")
+def discard_ledger(run_id: str | None = None, url: str | None = None,
+                   external_id: str | None = None, limit: int = 50,
+                   db: Session = Depends(get_db)):
+    """Responde 'Por que o job X não apareceu?' com source/stage/reason/run_id."""
+    from app.models.entities import DiscardLedger
+    q = select(DiscardLedger).order_by(DiscardLedger.id.desc()).limit(min(limit, 200))
+    if run_id:
+        q = select(DiscardLedger).where(DiscardLedger.run_id == run_id).order_by(DiscardLedger.id.desc()).limit(min(limit, 200))
+    elif url:
+        q = select(DiscardLedger).where(DiscardLedger.url == url).order_by(DiscardLedger.id.desc()).limit(min(limit, 200))
+    elif external_id:
+        q = select(DiscardLedger).where(DiscardLedger.external_id == external_id).order_by(DiscardLedger.id.desc()).limit(min(limit, 200))
+    rows = db.scalars(q).all()
+    return [
+        {"run_id": r.run_id, "source": r.source, "stage": r.stage, "reason": r.reason,
+         "detail": r.detail, "title": r.title, "company": r.company, "url": r.url,
+         "external_id": r.external_id,
+         "created_at": r.created_at.isoformat() if r.created_at else None}
+        for r in rows
+    ]

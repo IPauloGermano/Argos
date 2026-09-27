@@ -101,6 +101,8 @@ class GetOnBoardJobSource(JobSource):
                                 continue
 
                             # Resolução de empresa via cache ou endpoint público
+                            # N+1 controlado: usa cache + semáforo implícito (sem burst).
+                            # O lookup é best-effort: falha silenciosa não derruba a vaga.
                             comp_id = attr.get("company", {}).get("data", {}).get("id")
                             company_name = "Empresa Confidencial (Get on Board)"
                             if comp_id:
@@ -112,7 +114,9 @@ class GetOnBoardJobSource(JobSource):
                                         if c_resp.status_code == 200:
                                             c_data = c_resp.json().get("data", {}).get("attributes", {})
                                             company_name = c_data.get("name") or company_name
-                                            _COMPANY_CACHE[comp_id] = company_name
+                                            # Limita cache para evitar crescimento ilimitado
+                                            if len(_COMPANY_CACHE) < 2000:
+                                                _COMPANY_CACHE[comp_id] = company_name
                                     except Exception:
                                         pass
 

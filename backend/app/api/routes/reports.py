@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin_token
 from app.models.entities import User, WeeklyReport
 from app.services.reports import generate_weekly_report
 
@@ -46,7 +47,7 @@ def get_latest_weekly_report(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/weekly/generate")
+@router.post("/weekly/generate", dependencies=[Depends(require_admin_token)])
 def create_weekly_report(top_limit: int = 10, db: Session = Depends(get_db)):
     user = _get_current_user(db)
     return generate_weekly_report(db, user.id, top_limit=top_limit, force_new=True)
